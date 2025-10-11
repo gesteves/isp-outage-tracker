@@ -21,12 +21,12 @@ export default function StatusIndicator({ isOnline, currentOutageDuration }: Sta
       </div>
       
       <h1 className="text-3xl md:text-5xl font-bold mb-4">
-        {isOnline ? 'Internet is UP' : 'Internet is DOWN'}
+        Your internet is <span className={isOnline ? 'text-green-600' : 'text-red-600'}>{isOnline ? 'up' : 'down'}</span>
       </h1>
       
       {!isOnline && currentOutageDuration !== null && currentOutageDuration !== undefined && (
         <p className="text-xl md:text-2xl text-gray-600">
-          Down for {formatDuration(currentOutageDuration)}
+          It’s been down for {formatDuration(currentOutageDuration)}
         </p>
       )}
     </div>
