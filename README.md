@@ -135,6 +135,8 @@ npm start          # Serve the production build
 
 CI runs lint, typecheck, tests and the build on every pull request.
 
+`tsc` is TypeScript 7 (the native compiler, installed as `@typescript/native`), but the `typescript` package is aliased to TypeScript 6, because `typescript-eslint` needs a compiler API that TypeScript 7.0 doesn't have. Once `typescript-eslint` supports TypeScript 7.1, drop the alias.
+
 ## Deployment to Netlify
 
 The app is a static export (`output: 'export'` in `next.config.mjs`), so it deploys as plain files from `out/`; `netlify.toml` already sets this up, including cache headers for the service worker.
