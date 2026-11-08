@@ -15,7 +15,7 @@ describe('connectivity', () => {
         .mockResolvedValueOnce({ ok: true } as Response) // 1.1.1.1 succeeds
         .mockRejectedValueOnce(new Error('Failed')) // 8.8.8.8 fails
         .mockRejectedValueOnce(new Error('Failed')) // cloudflare.com fails
-        .mockRejectedValueOnce(new Error('Failed')) // /api/health fails
+        .mockRejectedValueOnce(new Error('Failed')) // google.com fails
       
       const result = await checkConnectivity()
       

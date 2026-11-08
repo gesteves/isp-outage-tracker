@@ -1,6 +1,6 @@
 # ISP Outage Tracker
 
-A Next.js 15 application to track and log internet outages from your ISP. The app continuously monitors connectivity and records when the internet goes down, providing statistics and exportable logs.
+A Next.js 16 application to track and log internet outages from your ISP. The app continuously monitors connectivity and records when the internet goes down, providing statistics and exportable logs.
 
 ## Features
 
@@ -18,16 +18,23 @@ A Next.js 15 application to track and log internet outages from your ISP. The ap
 
 The app uses a multi-endpoint connectivity check strategy to avoid false positives:
 
-- Checks multiple reliable endpoints (1.1.1.1, 8.8.8.8, cloudflare.com, and the app itself)
-- Marks internet as "down" only if ALL endpoints fail
-- Requires consecutive failures (default: 2) before logging an outage
+- Checks multiple reliable endpoints (1.1.1.1, 8.8.8.8, cloudflare.com, and google.com)
+- Marks a check as failed only if ALL endpoints fail
+- Requires consecutive failed checks (default: 2) before logging an outage. The outage's start time is backdated to the *first* failed check.
+- An outage ends at the first successful check
 - All checks run client-side from your browser to detect YOUR internet status
+
+Until the first check completes, the dashboard shows "Checking your connection…" instead of guessing.
+
+### Gaps in monitoring
+
+The app can only record what it observes. If no check ran for more than two check intervals plus a minute (for example, the laptop slept, the tab was closed, or the iPad suspended Safari), any open outage is closed at the last check that saw the connection down. The failure streak also restarts. This keeps an outage from stretching across hours when the app wasn't watching.
 
 ## Setup
 
 ### Prerequisites
 
-- Node.js 18+ installed
+- Node.js 20.9+ (required by Next.js 16; `.nvmrc` pins the current LTS)
 - Netlify account (for deployment, optional)
 
 ### 1. Clone and Install
@@ -55,9 +62,11 @@ cp env.example .env.local
 Edit `.env.local` with your values:
 
 ```env
-NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60  # Check every 60 seconds
-NEXT_PUBLIC_FAILURE_THRESHOLD=2        # Log outage after 2 consecutive failures
+NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60  # Check every 60 seconds (minimum 5)
+NEXT_PUBLIC_FAILURE_THRESHOLD=2        # Log outage after 2 consecutive failures (minimum 1)
 ```
+
+Invalid values (non-integers, or values below the minimum) fall back to the defaults.
 
 ### 3. Run Locally
 
@@ -66,6 +75,15 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### 4. Development Scripts
+
+```bash
+npm test           # Jest test suite
+npm run lint       # ESLint
+npm run typecheck  # TypeScript, no emit
+npm run build      # Production build
+```
 
 ## Deployment to Netlify
 
@@ -102,7 +120,7 @@ The app automatically detects your ISP name using IP geolocation (ipapi.co) and 
 
 ### Check Interval
 
-How often to check connectivity (in seconds):
+How often to check connectivity (in seconds, minimum 5):
 ```env
 NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60  # 60 seconds
 ```
@@ -127,12 +145,13 @@ NEXT_PUBLIC_FAILURE_THRESHOLD=2
 All data is stored in your browser's localStorage:
 - Outage records
 - Tracking start time
+- Time of the last check (used to detect gaps in monitoring across reloads)
 
 **Note**: Data is browser-specific. If you open the app in a different browser or device, you won't see the same history.
 
 ## Browser Tab Throttling
 
-When the browser tab is in the background, JavaScript timers may slow down. The app will continue working, but timing precision may be slightly reduced when the tab isn't active.
+When the browser tab is in the background, JavaScript timers may slow down. The app will continue working, but timing precision may be slightly reduced when the tab isn't active. Delays of up to about a minute are tolerated before a pause is treated as a gap in monitoring (see above).
 
 ## Future Enhancements
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { OutageStats } from '@/types';
-import { formatDurationFromSeconds } from '@/lib/utils';
+import { formatDurationFromSeconds, formatPercentage } from '@/lib/utils';
 
 interface StatsDisplayProps {
   stats: OutageStats;
@@ -17,7 +17,7 @@ export default function StatsDisplay({ stats }: StatsDisplayProps) {
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="text-sm text-gray-500 mb-2">Uptime</div>
         <div className="text-3xl font-bold text-green-600">
-          {stats.uptimePercentage.toFixed(2)}%
+          {formatPercentage(stats.uptimePercentage)}%
         </div>
         <div className="text-xs text-gray-400 mt-2">
           Since {new Date(stats.trackingStartTime).toLocaleDateString()}

@@ -27,7 +27,7 @@ export default function OutageList({ outages }: OutageListProps) {
       {sortedOutages.map((outage) => (
         <div
           key={outage.id}
-          className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow"
+          className="bg-white border border-gray-200 rounded-lg p-4 shadow-xs hover:shadow-md transition-shadow"
         >
           <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2">
             <div className="flex-1">

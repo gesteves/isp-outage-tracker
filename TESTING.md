@@ -9,14 +9,19 @@ Tests are organized in the `__tests__` directory:
 ```
 __tests__/
 ├── lib/
-│   ├── storage.test.ts        # localStorage utilities tests
-│   ├── utils.test.ts           # Utility functions tests  
-│   ├── connectivity.test.ts    # Connectivity checking tests
-│   └── isp-detection.test.ts   # ISP auto-detection tests
+│   ├── monitor.test.ts               # Outage state machine (thresholds, backdating, gaps)
+│   ├── connectivity-monitor.test.ts  # Check scheduling, persistence, clearing history
+│   ├── config.test.ts                # Env var parsing and fallbacks
+│   ├── storage.test.ts               # localStorage utilities
+│   ├── utils.test.ts                 # Stats, duration/percentage formatting, CSV export
+│   ├── connectivity.test.ts          # Multi-endpoint connectivity checking
+│   └── isp-detection.test.ts         # ISP auto-detection with caching
+├── hooks/
+│   └── useConnectivityMonitor.test.tsx  # React hook, including StrictMode double-mount
 └── components/
-    ├── StatusIndicator.test.tsx  # Status display component tests
-    ├── OutageList.test.tsx        # Outage list component tests
-    └── StatsDisplay.test.tsx      # Statistics display tests
+    ├── StatusIndicator.test.tsx  # Up / down / checking display
+    ├── OutageList.test.tsx       # Outage history display and sorting
+    └── StatsDisplay.test.tsx     # Statistics display
 ```
 
 ## Running Tests
@@ -37,13 +42,16 @@ npm test -- --coverage
 The test suite covers:
 
 ### Core Functionality
+- ✅ **Monitor**: When outages start and end, failure thresholds, and gaps in monitoring
+- ✅ **Monitor runner**: One check at a time, StrictMode safety, persistence, clearing history
+- ✅ **Config**: Invalid env values fall back to defaults
 - ✅ **Storage**: localStorage operations for outages and tracking data
 - ✅ **Utils**: Stats calculation, duration formatting, CSV export
 - ✅ **Connectivity**: Multi-endpoint connectivity checking
 - ✅ **ISP Detection**: Automatic ISP name detection with caching
 
 ### Components
-- ✅ **StatusIndicator**: Online/offline status display
+- ✅ **StatusIndicator**: Up / down / checking status display
 - ✅ **StatsDisplay**: Uptime statistics visualization  
 - ✅ **OutageList**: Outage history display and sorting
 
@@ -62,23 +70,22 @@ import { render, screen } from '@testing-library/react'
 import StatusIndicator from '@/components/StatusIndicator'
 
 describe('StatusIndicator', () => {
-  it('should show "Internet is UP" when online', () => {
-    render(<StatusIndicator isOnline={true} />)
-    expect(screen.getByText('Internet is UP')).toBeInTheDocument()
+  it('should show "up" when online', () => {
+    render(<StatusIndicator status="up" />)
+    expect(screen.getByText(/Your internet is/)).toBeInTheDocument()
+    expect(screen.getByText('up')).toBeInTheDocument()
   })
 })
 ```
 
+Time-dependent logic is easiest to test through the pure state machine in `lib/monitor.ts`, or with
+`jest.useFakeTimers()` and an injected `check` function for `createConnectivityMonitor`.
+
 ### Mocking
 
-The test setup includes mocks for:
-- `localStorage` - For storage operations
-- `fetch` - For network requests
-- `Date.now()` - For time-based tests
-
-## Known Issues
-
-The jest.setup.js file needs the localStorage mock properly configured. If tests fail with "mockClear is not a function", ensure jest.setup.js properly recreates jest mocks in beforeEach.
+`jest.setup.ts` provides:
+- `localStorage`: an in-memory mock, reset before each test
+- `fetch`: a `jest.fn()` that tests override as needed
 
 ## Continuous Integration
 

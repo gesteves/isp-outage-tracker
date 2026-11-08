@@ -1,50 +1,60 @@
 'use client';
 
+import { ConnectionStatus } from '@/lib/monitor';
+import { formatDurationFromSeconds } from '@/lib/utils';
+
 interface StatusIndicatorProps {
-  isOnline: boolean;
+  status: ConnectionStatus;
   currentOutageDuration?: number | null;
 }
 
-export default function StatusIndicator({ isOnline, currentOutageDuration }: StatusIndicatorProps) {
+const STYLES: Record<ConnectionStatus, { circle: string; text: string; icon: string; label: string }> = {
+  up: {
+    circle: 'bg-green-500 shadow-lg shadow-green-500/50',
+    text: 'text-green-600',
+    icon: '✓',
+    label: 'up',
+  },
+  down: {
+    circle: 'bg-red-500 shadow-lg shadow-red-500/50 animate-pulse',
+    text: 'text-red-600',
+    icon: '✗',
+    label: 'down',
+  },
+  unknown: {
+    circle: 'bg-gray-300 shadow-lg shadow-gray-300/50 animate-pulse',
+    text: 'text-gray-500',
+    icon: '…',
+    label: '',
+  },
+};
+
+export default function StatusIndicator({ status, currentOutageDuration }: StatusIndicatorProps) {
+  const style = STYLES[status];
+
   return (
     <div className="flex flex-col items-center justify-center p-8 md:p-12">
       <div
-        className={`w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center mb-6 transition-colors ${
-          isOnline
-            ? 'bg-green-500 shadow-lg shadow-green-500/50'
-            : 'bg-red-500 shadow-lg shadow-red-500/50 animate-pulse'
-        }`}
+        className={`w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center mb-6 transition-colors ${style.circle}`}
       >
-        <span className="text-4xl md:text-6xl">
-          {isOnline ? '✓' : '✗'}
-        </span>
+        <span className="text-4xl md:text-6xl">{style.icon}</span>
       </div>
-      
+
       <h1 className="text-3xl md:text-5xl font-bold mb-4">
-        Your internet is <span className={isOnline ? 'text-green-600' : 'text-red-600'}>{isOnline ? 'up' : 'down'}</span>
+        {status === 'unknown' ? (
+          <span className={style.text}>Checking your connection…</span>
+        ) : (
+          <>
+            Your internet is <span className={style.text}>{style.label}</span>
+          </>
+        )}
       </h1>
-      
-      {!isOnline && currentOutageDuration !== null && currentOutageDuration !== undefined && (
+
+      {status === 'down' && currentOutageDuration !== null && currentOutageDuration !== undefined && (
         <p className="text-xl md:text-2xl text-gray-600">
-          It’s been down for {formatDuration(currentOutageDuration)}
+          It’s been down for {formatDurationFromSeconds(currentOutageDuration)}
         </p>
       )}
     </div>
   );
 }
-
-function formatDuration(seconds: number): string {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  const parts = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
-
-  return parts.join(' ');
-}
-

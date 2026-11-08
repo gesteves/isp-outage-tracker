@@ -23,19 +23,19 @@ async function checkEndpoint(url: string): Promise<boolean> {
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
+    // With no-cors the response is opaque, so its status can't be read; only
+    // whether the request resolved. Resolving means the endpoint is reachable.
+    await fetch(url, {
       method: 'HEAD',
       mode: 'no-cors',
       signal: controller.signal,
       cache: 'no-store',
     });
-    clearTimeout(timeoutId);
-    // With no-cors mode, we get an opaque response
-    // If we get here without error, the endpoint is reachable
     return true;
-  } catch (error) {
-    clearTimeout(timeoutId);
+  } catch {
     return false;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

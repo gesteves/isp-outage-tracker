@@ -25,18 +25,15 @@ export async function detectISP(): Promise<string | null> {
     }
   }
 
-  // Try to detect ISP using free IP geolocation API
+  // Try to detect ISP using free IP geolocation API (ipapi.co: free tier, no API key required)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
   try {
-    // Using ipapi.co - free tier, no API key required
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
     const response = await fetch('https://ipapi.co/json/', {
       signal: controller.signal,
     });
-    
-    clearTimeout(timeoutId);
-    
+
     if (response.ok) {
       const data = await response.json();
       const ispName = data.org || data.asn?.org || null;
@@ -56,8 +53,10 @@ export async function detectISP(): Promise<string | null> {
       }
     }
   } catch (error) {
-    // Silently fail - we'll fall back to env var or no ISP name
+    // Silently fail; the dashboard just won't show an ISP name.
     console.debug('ISP detection failed:', error);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   return null;

@@ -59,11 +59,15 @@ describe('OutageList', () => {
       },
     ]
     
-    const { container } = render(<OutageList outages={outages} />)
-    
-    const outageElements = container.querySelectorAll('.bg-white')
-    expect(outageElements).toHaveLength(2)
-    // Most recent (test-2) should be first
+    render(<OutageList outages={outages} />)
+
+    const startTimes = screen
+      .getAllByText('Started')
+      .map(label => label.nextElementSibling?.textContent)
+    expect(startTimes).toEqual([
+      new Date('2024-01-02T10:00:00Z').toLocaleString(),
+      new Date('2024-01-01T10:00:00Z').toLocaleString(),
+    ])
   })
 })
 
