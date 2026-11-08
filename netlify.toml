@@ -1,7 +1,16 @@
+# The app is a static export (next.config.mjs: output: 'export'), served from out/.
 [build]
   command = "npm run build"
-  publish = ".next"
+  publish = "out"
 
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
+# The service worker must be revalidated on every load so updates roll out.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
 
+# Build assets have content hashes in their names.
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

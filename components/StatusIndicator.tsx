@@ -1,7 +1,7 @@
 'use client';
 
 import { ConnectionStatus } from '@/lib/monitor';
-import { formatDurationFromSeconds } from '@/lib/utils';
+import { formatDurationFromSeconds } from '@/lib/format';
 
 interface StatusIndicatorProps {
   status: ConnectionStatus;
@@ -40,7 +40,7 @@ export default function StatusIndicator({ status, currentOutageDuration }: Statu
         <span className="text-4xl md:text-6xl">{style.icon}</span>
       </div>
 
-      <h1 className="text-3xl md:text-5xl font-bold mb-4">
+      <p role="status" aria-live="polite" className="text-3xl md:text-5xl font-bold mb-4 text-center">
         {status === 'unknown' ? (
           <span className={style.text}>Checking your connection…</span>
         ) : (
@@ -48,7 +48,7 @@ export default function StatusIndicator({ status, currentOutageDuration }: Statu
             Your internet is <span className={style.text}>{style.label}</span>
           </>
         )}
-      </h1>
+      </p>
 
       {status === 'down' && currentOutageDuration !== null && currentOutageDuration !== undefined && (
         <p className="text-xl md:text-2xl text-gray-600">

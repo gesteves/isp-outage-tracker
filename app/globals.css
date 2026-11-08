@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/*
+ * Chart roles, from the dataviz reference palette (validated on the white card
+ * surface): series-1 for ISP downtime, the muted gray as de-emphasis for local
+ * network downtime, hairline chrome for grid and baseline.
+ */
+@theme {
+  --color-viz-series-1: #2a78d6;
+  --color-viz-deemphasis: #898781;
+  --color-viz-grid: #e1e0d9;
+  --color-viz-baseline: #c3c2b7;
+  --color-viz-muted: #898781;
+}
+
 @layer base {
   body {
     color: #171717;

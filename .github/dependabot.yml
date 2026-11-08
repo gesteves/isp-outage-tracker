@@ -3,6 +3,16 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"	   
+      interval: "weekly"
       day: "saturday"
+    groups:
+      # Minor and patch updates arrive as one PR; each major bump gets its own,
+      # so breaking changes (like Tailwind 3 → 4) are reviewed on their own.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"

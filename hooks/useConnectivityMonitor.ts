@@ -5,6 +5,7 @@ import { MonitorDeps, MonitorSnapshot, createConnectivityMonitor } from '@/lib/c
 
 export interface UseConnectivityMonitor extends MonitorSnapshot {
   clearHistory: () => void;
+  checkNow: () => void;
 }
 
 export function useConnectivityMonitor(deps?: MonitorDeps): UseConnectivityMonitor {
@@ -18,5 +19,23 @@ export function useConnectivityMonitor(deps?: MonitorDeps): UseConnectivityMonit
 
   useEffect(() => monitor.start(), [monitor]);
 
-  return { ...snapshot, clearHistory: monitor.clearHistory };
+  useEffect(() => {
+    // The browser noticed the device's network change: re-check instead of waiting.
+    const onNetworkChange = () => monitor.checkNow();
+    // Background tabs have their timers throttled; catch up when the tab is shown again.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') monitor.checkIfOverdue();
+    };
+
+    window.addEventListener('online', onNetworkChange);
+    window.addEventListener('offline', onNetworkChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('online', onNetworkChange);
+      window.removeEventListener('offline', onNetworkChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [monitor]);
+
+  return { ...snapshot, clearHistory: monitor.clearHistory, checkNow: monitor.checkNow };
 }

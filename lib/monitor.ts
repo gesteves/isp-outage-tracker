@@ -8,31 +8,48 @@ import { Outage } from '@/types';
 
 export type ConnectionStatus = 'unknown' | 'up' | 'down';
 
-export interface MonitorState {
-  status: ConnectionStatus;
+export interface FailureStreak {
   /** Failed checks in a row since the last success (or since the last gap). */
   consecutiveFailures: number;
   /** When the current failure streak began (epoch ms); becomes the outage start time. */
   firstFailureAt: number | null;
+  /** True while every failure in the streak happened with the device reporting no network. */
+  local: boolean;
+}
+
+export interface MonitorState {
+  status: ConnectionStatus;
+  streak: FailureStreak;
   /** When the most recent check ran (epoch ms). */
   lastCheckAt: number | null;
   currentOutage: Outage | null;
 }
 
-export type MonitorEvent =
-  | { type: 'outageStarted'; outage: Outage }
-  | { type: 'outageEnded'; outage: Outage };
+export interface MonitorEvent {
+  /** 'updated' means an open outage changed, e.g. its cause went from local to ISP. */
+  type: 'started' | 'updated' | 'ended';
+  outage: Outage;
+  /**
+   * True when an outage was closed because of a gap in monitoring, not because the
+   * connection was seen coming back. Nothing was observed, so nothing to announce.
+   */
+  gap?: boolean;
+}
 
 export interface CheckResult {
   online: boolean;
   /** When the check ran (epoch ms). */
   at: number;
+  /** navigator.onLine when the check ran. False means the device itself had no network. */
+  deviceOnline?: boolean;
 }
 
 export interface MonitorOptions {
   threshold: number;
   intervalMs: number;
   newId: () => string;
+  /** ISP name to record on outages that start during this check. */
+  isp?: string | null;
 }
 
 /**
@@ -42,21 +59,41 @@ export interface MonitorOptions {
  */
 export const GAP_TOLERANCE_MS = 60_000;
 
+/** How soon to re-check while a failure streak or an outage is open. */
+export const FAST_RETRY_MS = 10_000;
+
+export const EMPTY_STREAK: FailureStreak = Object.freeze({
+  consecutiveFailures: 0,
+  firstFailureAt: null,
+  local: false,
+});
+
 export function gapThresholdMs(intervalMs: number): number {
   return 2 * intervalMs + GAP_TOLERANCE_MS;
+}
+
+/** True when so much time passed between checks that the app can't have been watching. */
+export function isGap(lastCheckAt: number | null, at: number, intervalMs: number): boolean {
+  return lastCheckAt !== null && at - lastCheckAt > gapThresholdMs(intervalMs);
 }
 
 export function initialMonitorState(
   ongoingOutage: Outage | null,
   lastCheckAt: number | null,
+  streak: FailureStreak = EMPTY_STREAK,
 ): MonitorState {
   return {
     status: ongoingOutage ? 'down' : 'unknown',
-    consecutiveFailures: 0,
-    firstFailureAt: null,
+    streak,
     lastCheckAt,
     currentOutage: ongoingOutage,
   };
+}
+
+/** Delay before the next check: short while the connection is in doubt, the full interval otherwise. */
+export function nextCheckDelay(state: MonitorState, intervalMs: number): number {
+  const inDoubt = state.streak.consecutiveFailures > 0 || state.currentOutage !== null;
+  return inDoubt ? Math.min(FAST_RETRY_MS, intervalMs) : intervalMs;
 }
 
 function endOutage(outage: Outage, endMs: number): Outage {
@@ -75,66 +112,80 @@ function endOutage(outage: Outage, endMs: number): Outage {
  * - An outage starts once `threshold` checks in a row have failed. It's
  *   backdated to the first failed check, not the check that crossed the threshold.
  * - A success ends the open outage at the time of that check.
+ * - An outage is 'local' only while every failure in it happened with the device
+ *   reporting no network. One failure with the device online makes it 'isp'.
  * - If more than `gapThresholdMs` passed since the previous check (sleep, closed
  *   tab, suspended iPad), only what was observed is recorded. An open outage is
  *   closed at the last check that saw it down, and the failure streak restarts.
  */
 export function applyCheck(
   prev: MonitorState,
-  { online, at }: CheckResult,
-  { threshold, intervalMs, newId }: MonitorOptions,
+  { online, at, deviceOnline = true }: CheckResult,
+  { threshold, intervalMs, newId, isp = null }: MonitorOptions,
 ): { state: MonitorState; events: MonitorEvent[] } {
   const events: MonitorEvent[] = [];
   let state = prev;
 
-  if (state.lastCheckAt !== null && at - state.lastCheckAt > gapThresholdMs(intervalMs)) {
-    if (state.currentOutage) {
-      events.push({ type: 'outageEnded', outage: endOutage(state.currentOutage, state.lastCheckAt) });
+  if (isGap(state.lastCheckAt, at, intervalMs)) {
+    if (state.currentOutage && state.lastCheckAt !== null) {
+      events.push({ type: 'ended', outage: endOutage(state.currentOutage, state.lastCheckAt), gap: true });
     }
-    state = { ...initialMonitorState(null, state.lastCheckAt) };
+    state = initialMonitorState(null, state.lastCheckAt);
   }
 
   if (online) {
     if (state.currentOutage) {
-      events.push({ type: 'outageEnded', outage: endOutage(state.currentOutage, at) });
+      events.push({ type: 'ended', outage: endOutage(state.currentOutage, at) });
     }
     return {
-      state: {
-        status: 'up',
-        consecutiveFailures: 0,
-        firstFailureAt: null,
-        lastCheckAt: at,
-        currentOutage: null,
-      },
+      state: { status: 'up', streak: EMPTY_STREAK, lastCheckAt: at, currentOutage: null },
       events,
     };
   }
 
-  const consecutiveFailures = state.consecutiveFailures + 1;
-  const firstFailureAt = state.firstFailureAt ?? at;
-  let currentOutage = state.currentOutage;
+  const local = !deviceOnline;
+  const prevStreak = state.streak;
+  const streak: FailureStreak = {
+    consecutiveFailures: prevStreak.consecutiveFailures + 1,
+    firstFailureAt: prevStreak.firstFailureAt ?? at,
+    local: prevStreak.consecutiveFailures === 0 ? local : prevStreak.local && local,
+  };
 
-  if (!currentOutage && consecutiveFailures >= threshold) {
+  let currentOutage = state.currentOutage;
+  if (!currentOutage && streak.consecutiveFailures >= threshold) {
     currentOutage = {
       id: newId(),
-      startTime: new Date(firstFailureAt).toISOString(),
+      startTime: new Date(streak.firstFailureAt!).toISOString(),
       endTime: null,
       duration: null,
+      cause: streak.local ? 'local' : 'isp',
+      isp,
     };
-    events.push({ type: 'outageStarted', outage: currentOutage });
+    events.push({ type: 'started', outage: currentOutage });
+  } else if (currentOutage && currentOutage.cause === 'local' && !local) {
+    currentOutage = { ...currentOutage, cause: 'isp' };
+    events.push({ type: 'updated', outage: currentOutage });
   }
 
   return {
     state: {
       // Below the threshold the status stays as it was (still "unknown" until the first success).
       status: currentOutage ? 'down' : state.status,
-      consecutiveFailures,
-      firstFailureAt,
+      streak,
       lastCheckAt: at,
       currentOutage,
     },
     events,
   };
+}
+
+/** Replaces the outage with the same id, or appends it. */
+export function upsertOutage(outages: Outage[], outage: Outage): Outage[] {
+  const index = outages.findIndex(o => o.id === outage.id);
+  if (index === -1) return [...outages, outage];
+  const next = outages.slice();
+  next[index] = outage;
+  return next;
 }
 
 /**

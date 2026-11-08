@@ -1,9 +1,18 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ISP Outage Tracker",
   description: "Track and monitor internet outages from your ISP",
+  appleWebApp: {
+    capable: true,
+    title: "Outages",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f9fafb",
 };
 
 export default function RootLayout({
@@ -19,4 +28,3 @@ export default function RootLayout({
     </html>
   );
 }
-

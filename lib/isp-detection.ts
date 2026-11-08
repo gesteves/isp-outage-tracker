@@ -6,9 +6,14 @@ interface ISPInfo {
   timestamp: number;
 }
 
-export async function detectISP(): Promise<string | null> {
+/**
+ * Detects the ISP name from the public IP. Results are cached for an hour;
+ * `force` skips the cache, e.g. after an outage, when a failover connection
+ * may have a different ISP.
+ */
+export async function detectISP({ force = false }: { force?: boolean } = {}): Promise<string | null> {
   // Check if we have a cached ISP name
-  if (typeof window !== 'undefined') {
+  if (!force && typeof window !== 'undefined') {
     const cached = localStorage.getItem(ISP_CACHE_KEY);
     if (cached) {
       try {
