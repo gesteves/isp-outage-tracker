@@ -2,6 +2,7 @@ import { StrictMode, ReactNode } from 'react'
 import { act, renderHook } from '@testing-library/react'
 import { useConnectivityMonitor } from '@/hooks/useConnectivityMonitor'
 import { checkConnectivity } from '@/lib/connectivity'
+import { RECONNECT_SETTLE_MS } from '@/lib/connectivity-monitor'
 import { FAST_RETRY_MS } from '@/lib/monitor'
 import { loadData } from '@/lib/storage'
 
@@ -55,7 +56,7 @@ describe('useConnectivityMonitor', () => {
     expect(result.current.status).toBe('unknown')
   })
 
-  it('re-checks immediately when the browser reports a network change', async () => {
+  it('re-checks when the browser reports a network change, giving a reconnect a moment', async () => {
     mockCheck.mockResolvedValue(true)
     renderHook(() => useConnectivityMonitor(deps))
     await act(() => jest.advanceTimersByTimeAsync(0))
@@ -67,11 +68,39 @@ describe('useConnectivityMonitor', () => {
     })
     expect(mockCheck).toHaveBeenCalledTimes(2)
 
+    // Checking the instant the network is back could fail and count a local outage against the ISP.
     await act(async () => {
       window.dispatchEvent(new Event('online'))
-      await jest.advanceTimersByTimeAsync(0)
+      await jest.advanceTimersByTimeAsync(RECONNECT_SETTLE_MS - 1)
     })
+    expect(mockCheck).toHaveBeenCalledTimes(2)
+    await act(() => jest.advanceTimersByTimeAsync(1))
     expect(mockCheck).toHaveBeenCalledTimes(3)
+  })
+
+  it('a local outage stays local when the device reconnects', async () => {
+    let deviceOnline = false
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => deviceOnline })
+    try {
+      mockCheck.mockResolvedValue(false)
+      const { result } = renderHook(() => useConnectivityMonitor(deps))
+      await act(() => jest.advanceTimersByTimeAsync(0))
+      await act(() => jest.advanceTimersByTimeAsync(FAST_RETRY_MS))
+      expect(result.current.currentOutage?.cause).toBe('local')
+
+      // Wi-Fi is back, but requests fail for a moment while it reconnects.
+      deviceOnline = true
+      await act(async () => {
+        window.dispatchEvent(new Event('online'))
+        await jest.advanceTimersByTimeAsync(0)
+      })
+      mockCheck.mockResolvedValue(true)
+      await act(() => jest.advanceTimersByTimeAsync(RECONNECT_SETTLE_MS))
+      expect(result.current.status).toBe('up')
+      expect(result.current.outages[0].cause).toBe('local')
+    } finally {
+      delete (navigator as { onLine?: boolean }).onLine
+    }
   })
 
   it('stops checking and listening on unmount', async () => {

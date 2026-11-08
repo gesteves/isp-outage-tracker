@@ -1,11 +1,18 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { MonitorDeps, MonitorSnapshot, createConnectivityMonitor } from '@/lib/connectivity-monitor';
+import {
+  MonitorDeps,
+  MonitorSnapshot,
+  RECONNECT_SETTLE_MS,
+  createConnectivityMonitor,
+} from '@/lib/connectivity-monitor';
 
 export interface UseConnectivityMonitor extends MonitorSnapshot {
   clearHistory: () => void;
   checkNow: () => void;
+  deleteOutage: (id: string) => void;
+  setOutageFlagged: (id: string, flagged: boolean) => void;
 }
 
 export function useConnectivityMonitor(deps?: MonitorDeps): UseConnectivityMonitor {
@@ -21,21 +28,30 @@ export function useConnectivityMonitor(deps?: MonitorDeps): UseConnectivityMonit
 
   useEffect(() => {
     // The browser noticed the device's network change: re-check instead of waiting.
-    const onNetworkChange = () => monitor.checkNow();
+    // Going offline is checked right away (it'll fail, and be tagged local); coming
+    // back gets a moment to settle, so a request sent mid-reconnect doesn't fail.
+    const onOffline = () => monitor.checkNow();
+    const onOnline = () => monitor.checkSoon(RECONNECT_SETTLE_MS);
     // Background tabs have their timers throttled; catch up when the tab is shown again.
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') monitor.checkIfOverdue();
     };
 
-    window.addEventListener('online', onNetworkChange);
-    window.addEventListener('offline', onNetworkChange);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      window.removeEventListener('online', onNetworkChange);
-      window.removeEventListener('offline', onNetworkChange);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [monitor]);
 
-  return { ...snapshot, clearHistory: monitor.clearHistory, checkNow: monitor.checkNow };
+  return {
+    ...snapshot,
+    clearHistory: monitor.clearHistory,
+    checkNow: monitor.checkNow,
+    deleteOutage: monitor.deleteOutage,
+    setOutageFlagged: monitor.setOutageFlagged,
+  };
 }

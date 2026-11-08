@@ -1,11 +1,13 @@
 'use client';
 
+import { ReactNode } from 'react';
+
 interface ToggleProps {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-  /** Shown under the label, e.g. an error or a hint. */
-  description?: string | null;
+  /** Shown under the label, e.g. an error or a hint. May include an action, like a retry button. */
+  description?: ReactNode;
 }
 
 export default function Toggle({ label, checked, onChange, description }: ToggleProps) {
@@ -32,7 +34,7 @@ export default function Toggle({ label, checked, onChange, description }: Toggle
         </span>
         {label}
       </button>
-      {description && <p className="mt-1 text-xs text-gray-500">{description}</p>}
+      {description ? <p className="mt-1 text-xs text-gray-500">{description}</p> : null}
     </div>
   );
 }

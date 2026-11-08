@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import OutageList from '@/components/OutageList'
+import { fireEvent, render, screen } from '@testing-library/react'
+import OutageList, { PAGE_SIZE } from '@/components/OutageList'
 import { Outage } from '@/types'
 
 const NOW = Date.parse('2024-01-03T00:00:00Z')
@@ -90,5 +90,65 @@ describe('OutageList', () => {
     expect(screen.getAllByText('Local network')).toHaveLength(1)
     expect(screen.getByText('Comcast')).toBeInTheDocument()
   })
-})
 
+  describe('pages', () => {
+    const many: Outage[] = Array.from({ length: PAGE_SIZE + 3 }, (_, i) => ({
+      id: `o${i}`,
+      startTime: new Date(Date.parse('2024-01-01T00:00:00Z') + i * 3600_000).toISOString(),
+      endTime: new Date(Date.parse('2024-01-01T00:00:00Z') + i * 3600_000 + 60_000).toISOString(),
+      duration: 60,
+    }))
+
+    it('shows the most recent outages first, then more on request', () => {
+      render(<OutageList outages={many} now={NOW} />)
+      expect(screen.getAllByText('Started')).toHaveLength(PAGE_SIZE)
+      fireEvent.click(screen.getByRole('button', { name: 'Show 3 more (3 older)' }))
+      expect(screen.getAllByText('Started')).toHaveLength(PAGE_SIZE + 3)
+      expect(screen.queryByRole('button', { name: /more/ })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('editing', () => {
+    const ended: Outage = { id: 'e', startTime: '2024-01-01T10:00:00Z', endTime: '2024-01-01T10:05:00Z', duration: 300 }
+    const ongoing: Outage = { id: 'o', startTime: '2024-01-02T10:00:00Z', endTime: null, duration: null }
+
+    it('offers no actions without handlers', () => {
+      render(<OutageList outages={[ended]} now={NOW} />)
+      expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    })
+
+    it('marks an outage as not real, and counts it again', () => {
+      const onFlag = jest.fn()
+      const { rerender } = render(<OutageList outages={[ended]} now={NOW} onFlag={onFlag} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Not an outage' }))
+      expect(onFlag).toHaveBeenCalledWith('e', true)
+
+      rerender(<OutageList outages={[{ ...ended, flagged: true }]} now={NOW} onFlag={onFlag} />)
+      expect(screen.getByText('Not counted')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Count as outage' }))
+      expect(onFlag).toHaveBeenLastCalledWith('e', false)
+    })
+
+    it('deletes an outage after confirming', () => {
+      const onDelete = jest.fn()
+      render(<OutageList outages={[ended]} now={NOW} onDelete={onDelete} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      expect(onDelete).not.toHaveBeenCalled()
+      expect(screen.getByRole('dialog', { name: 'Delete this outage?' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onDelete).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      const dialog = screen.getByRole('dialog')
+      fireEvent.click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Delete')!)
+      expect(onDelete).toHaveBeenCalledWith('e')
+    })
+
+    it('leaves the ongoing outage alone', () => {
+      render(<OutageList outages={[ongoing]} now={NOW} onDelete={() => {}} onFlag={() => {}} />)
+      expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Not an outage' })).not.toBeInTheDocument()
+    })
+  })
+})

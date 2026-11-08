@@ -27,13 +27,14 @@ describe('buildCsv', () => {
       '60.50',
       'ISP',
       'Comcast',
+      '',
     ])
   })
 
   it('leaves end and duration blank for ongoing outages', () => {
     const [, row] = rows(buildCsv([{ id: 'b', startTime: '2024-01-01T10:00:00.000Z', endTime: null, duration: null, cause: 'local' }]))
     expect(row[1]).toBe('Ongoing')
-    expect(row.slice(3)).toEqual(['', '', '', 'Local network', ''])
+    expect(row.slice(3)).toEqual(['', '', '', 'Local network', '', ''])
   })
 
   it('exports a zero-second outage as 0, not blank', () => {
@@ -56,6 +57,18 @@ describe('buildCsv', () => {
 
   it('escapes quotes', () => {
     expect(buildCsv([{ ...completed, isp: 'Say "hi" ISP' }])).toContain('"Say ""hi"" ISP"')
+  })
+
+  it('keeps ISP names from being read as spreadsheet formulas', () => {
+    const [, row] = rows(buildCsv([{ ...completed, isp: '=HYPERLINK("x")' }]))
+    expect(row[7]).toBe(`'=HYPERLINK(""x"")`)
+    const [, plain] = rows(buildCsv([completed]))
+    expect(plain[7]).toBe('Comcast')
+  })
+
+  it('marks outages flagged as not real', () => {
+    const [, row] = rows(buildCsv([{ ...completed, flagged: true }]))
+    expect(row[8]).toBe('Not an outage')
   })
 })
 
@@ -86,6 +99,35 @@ describe('exportToCSV', () => {
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
     expect(link?.getAttribute('download')).toMatch(/^isp-outages-\d{4}-\d{2}-\d{2}\.csv$/)
     expect(document.body.contains(link!)).toBe(false)
+  })
+
+  it('names the file after the local date, not the UTC one', () => {
+    let link: HTMLAnchorElement | undefined
+    const realCreateElement = document.createElement.bind(document)
+    jest.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = realCreateElement(tag)
+      if (tag === 'a') link = el as HTMLAnchorElement
+      return el
+    })
+    // Late evening, local time: in the Americas it's already tomorrow in UTC.
+    exportToCSV([], new Date(2024, 0, 1, 23, 30).getTime())
+    expect(link?.getAttribute('download')).toBe('isp-outages-2024-01-01.csv')
+  })
+
+  it('starts the file with a UTF-8 byte order mark, for Excel', async () => {
+    jest.useRealTimers()
+    let blob: Blob | undefined
+    global.URL.createObjectURL = jest.fn((b: Blob) => {
+      blob = b
+      return 'blob:mock-url'
+    })
+    exportToCSV([])
+    const bytes = await new Promise<Uint8Array>(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer))
+      reader.readAsArrayBuffer(blob!)
+    })
+    expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf])
   })
 
   it('revokes the object URL after the download starts', () => {

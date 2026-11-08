@@ -104,6 +104,19 @@ describe('useWakeLock', () => {
     expect(result.current.error).toBeNull()
   })
 
+  it('forgets a refusal once turned off, so it does not show again on re-enable', async () => {
+    request.mockRejectedValueOnce(Object.assign(new Error('nope'), { name: 'NotAllowedError' }))
+    // The next request stays pending, as if the browser were still deciding.
+    const { result, rerender } = renderHook(({ on }) => useWakeLock(on), { initialProps: { on: true } })
+    await act(async () => {})
+    expect(result.current.error).not.toBeNull()
+
+    rerender({ on: false })
+    request.mockImplementationOnce(() => new Promise(() => {}))
+    rerender({ on: true })
+    expect(result.current.error).toBeNull()
+  })
+
   it('releases on unmount', async () => {
     const { unmount } = renderHook(() => useWakeLock(true))
     await act(async () => {})

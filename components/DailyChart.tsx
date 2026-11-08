@@ -1,7 +1,7 @@
 'use client';
 
 import { KeyboardEvent, useRef, useState } from 'react';
-import { DayStats } from '@/lib/stats';
+import { DayStats } from '@/types';
 import { formatDurationFromSeconds } from '@/lib/format';
 
 interface DailyChartProps {
@@ -82,7 +82,9 @@ export default function DailyChart({ days }: DailyChartProps) {
     const current = days.findIndex(d => d.day === activeKey);
     const next = {
       ArrowLeft: current - 1,
+      ArrowUp: current - 1,
       ArrowRight: current + 1,
+      ArrowDown: current + 1,
       Home: 0,
       End: lastIndex,
     }[event.key];

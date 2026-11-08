@@ -1,7 +1,7 @@
 import { MonitorDeps, MonitorSnapshot, createConnectivityMonitor } from '@/lib/connectivity-monitor'
-import { FAST_RETRY_MS } from '@/lib/monitor'
-import { LEGACY_KEYS, emptyData, loadData, saveData } from '@/lib/storage'
-import { TabCoordinator, TabMessage, soloCoordinator } from '@/lib/tab-coordinator'
+import { FAST_RETRY_MS, gapThresholdMs } from '@/lib/monitor'
+import { LEGACY_KEYS, emptyData, loadData, readEpoch, saveData } from '@/lib/storage'
+import { LeadershipCallbacks, TabCoordinator, TabMessage, soloCoordinator } from '@/lib/tab-coordinator'
 import { Outage } from '@/types'
 
 const INTERVAL = 60_000
@@ -42,10 +42,13 @@ function setup(results: boolean[] | (() => Promise<boolean>), deps: MonitorDeps 
  * Like the real APIs, grants and messages are delivered asynchronously.
  */
 function createBrowser() {
-  type Waiter = { onAcquired: () => void; cancelled: boolean }
+  type Waiter = LeadershipCallbacks & { cancelled: boolean }
   const queue: Waiter[] = []
   let holder: Waiter | null = null
   const tabs = new Set<Set<(message: TabMessage<MonitorSnapshot>) => void>>()
+  /** A suspended tab doesn't hear that its lock was taken over until it runs again. */
+  let deliverLost = true
+  const pendingLost: Waiter[] = []
 
   const grant = () => {
     if (holder || queue.length === 0) return
@@ -57,23 +60,42 @@ function createBrowser() {
   }
 
   return {
+    suspendLostNotices() {
+      deliverLost = false
+    },
+    deliverLostNotices() {
+      pendingLost.splice(0).forEach(waiter => waiter.onLost())
+    },
     tab(): TabCoordinator<MonitorSnapshot> {
       const listeners = new Set<(message: TabMessage<MonitorSnapshot>) => void>()
       tabs.add(listeners)
       return {
         shared: true,
-        requestLeadership(onAcquired) {
-          const waiter: Waiter = { onAcquired, cancelled: false }
+        requestLeadership(callbacks) {
+          const waiter: Waiter = { ...callbacks, cancelled: false }
           queue.push(waiter)
           grant()
-          return () => {
-            waiter.cancelled = true
-            if (holder === waiter) {
-              holder = null
-              grant()
-            } else {
-              queue.splice(queue.indexOf(waiter), 1)
-            }
+          return {
+            release() {
+              waiter.cancelled = true
+              if (holder === waiter) {
+                holder = null
+                grant()
+              } else if (queue.includes(waiter)) {
+                queue.splice(queue.indexOf(waiter), 1)
+              }
+            },
+            takeOver() {
+              if (waiter.cancelled || holder === waiter) return
+              if (queue.includes(waiter)) queue.splice(queue.indexOf(waiter), 1)
+              const previous = holder
+              holder = waiter
+              void Promise.resolve().then(() => waiter.onAcquired())
+              if (!previous) return
+              queue.push(previous) // it waits in line to lead again
+              if (deliverLost) void Promise.resolve().then(() => previous.onLost())
+              else pendingLost.push(previous)
+            },
           }
         },
         post(message) {
@@ -262,6 +284,54 @@ describe('createConnectivityMonitor', () => {
     })
   })
 
+  describe('checkSoon', () => {
+    it('waits the given delay when that is sooner than the next check', async () => {
+      const { monitor, check } = setup([true, true])
+      monitor.start()
+      await flush()
+      monitor.checkSoon(2000)
+      expect(monitor.getSnapshot().nextCheckAt).toBe(T0 + 2000)
+      await jest.advanceTimersByTimeAsync(1999)
+      expect(check).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(1)
+      expect(check).toHaveBeenCalledTimes(2)
+    })
+
+    it('never puts off a check that is due sooner', async () => {
+      const { monitor } = setup([true])
+      monitor.start()
+      await flush()
+      await jest.advanceTimersByTimeAsync(INTERVAL - 1000)
+      monitor.checkSoon(2000)
+      expect(monitor.getSnapshot().nextCheckAt).toBe(T0 + INTERVAL)
+    })
+
+    it('checks that long after a check that is running', async () => {
+      const { check, resolve } = deferredCheck()
+      const { monitor } = setup(check)
+      monitor.start()
+      await flush()
+      monitor.checkSoon(2000)
+      resolve(true)
+      await flush()
+      expect(monitor.getSnapshot().nextCheckAt).toBe(T0 + 2000)
+    })
+  })
+
+  it('counts a failure as local if the device lost its network during the check', async () => {
+    let deviceOnline = true
+    const check = jest.fn(async () => {
+      deviceOnline = false // e.g. Wi-Fi dropped while the requests were out
+      return false
+    })
+    const { monitor } = setup(check, { deviceOnline: () => deviceOnline })
+    monitor.start()
+    await flush()
+    expect(stored().streak.local).toBe(true)
+    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
+    expect(stored().outages[0].cause).toBe('local')
+  })
+
   describe('ISP detection', () => {
     it('detects on start, stamps outages, and re-detects without the cache after recovery', async () => {
       const detectIsp = jest.fn(async ({ force }: { force: boolean }) => (force ? 'Backup LTE' : 'Comcast'))
@@ -278,6 +348,17 @@ describe('createConnectivityMonitor', () => {
       expect(detectIsp).toHaveBeenLastCalledWith({ force: true })
       expect(monitor.getSnapshot().ispName).toBe('Backup LTE')
     })
+  })
+
+  it('keeps the ISP name current in a long session, using the hour-long cache', async () => {
+    const detectIsp = jest.fn<Promise<string | null>, [{ force: boolean }]>(async () => 'Comcast')
+    const { monitor } = setup([true, true], { detectIsp })
+    monitor.start()
+    await flush()
+    await jest.advanceTimersByTimeAsync(INTERVAL)
+    // On taking the lead, then after each successful check, never skipping the cache.
+    expect(detectIsp).toHaveBeenCalledTimes(3)
+    expect(detectIsp.mock.calls.every(([options]) => options.force === false)).toBe(true)
   })
 
   it('reports when an outage is confirmed and when it ends', async () => {
@@ -364,6 +445,42 @@ describe('createConnectivityMonitor', () => {
     })
   })
 
+  describe('editing outages', () => {
+    const ended: Outage = { id: 'old', startTime: iso(T0 - 2 * INTERVAL), endTime: iso(T0 - INTERVAL), duration: 60 }
+    const ongoing: Outage = { id: 'now', startTime: iso(T0 - 1000), endTime: null, duration: null }
+
+    beforeEach(() => {
+      saveData({ ...emptyData(), trackingStartTime: iso(T0 - 10 * INTERVAL), outages: [ended, ongoing], lastCheckAt: T0 - 1000 })
+    })
+
+    it('flags an outage that has ended as not real, and unflags it', () => {
+      const { monitor } = setup([false])
+      monitor.start()
+      monitor.setOutageFlagged('old', true)
+      expect(stored().outages[0]).toEqual({ ...ended, flagged: true })
+      expect(monitor.getSnapshot().outages[0].flagged).toBe(true)
+
+      monitor.setOutageFlagged('old', false)
+      expect(stored().outages[0]).toEqual(ended)
+    })
+
+    it('deletes an outage that has ended', () => {
+      const { monitor } = setup([false])
+      monitor.start()
+      monitor.deleteOutage('old')
+      expect(stored().outages.map(o => o.id)).toEqual(['now'])
+      expect(monitor.getSnapshot().outages.map(o => o.id)).toEqual(['now'])
+    })
+
+    it('leaves the ongoing outage alone', () => {
+      const { monitor } = setup([false])
+      monitor.start()
+      monitor.deleteOutage('now')
+      monitor.setOutageFlagged('now', true)
+      expect(stored().outages[1]).toEqual(ongoing)
+    })
+  })
+
   it('stops checking after stop()', async () => {
     const { monitor, check } = setup([true, true])
     const stop = monitor.start()
@@ -388,8 +505,8 @@ describe('createConnectivityMonitor', () => {
       tabB.monitor.start()
       await flush()
 
-      expect(tabA.monitor.getSnapshot().role).toBe('leader')
-      expect(tabB.monitor.getSnapshot().role).toBe('follower')
+      expect(tabA.monitor.getSnapshot()).toMatchObject({ role: 'leader', following: false })
+      expect(tabB.monitor.getSnapshot()).toMatchObject({ role: 'follower', following: true })
       expect(tabA.check).toHaveBeenCalledTimes(1)
       expect(tabB.check).not.toHaveBeenCalled()
       expect(tabB.monitor.getSnapshot().status).toBe('up')
@@ -447,6 +564,128 @@ describe('createConnectivityMonitor', () => {
       // Failure #2 came from the new leader, so the outage is confirmed and backdated to failure #1.
       expect(stored().outages).toHaveLength(1)
       expect(stored().outages[0].startTime).toBe(iso(T0))
+    })
+
+    it('is not "following" until it hears from a leader', () => {
+      const { tabB } = twoTabs()
+      tabB.monitor.start() // waiting for the lock, which it will get: no other tab is open
+      expect(tabB.monitor.getSnapshot()).toMatchObject({ role: 'follower', following: false })
+    })
+
+    it("a follower's edits to outages go through the leader", async () => {
+      const ended: Outage = { id: 'old', startTime: iso(T0 - 2 * INTERVAL), endTime: iso(T0 - INTERVAL), duration: 60 }
+      saveData({ ...emptyData(), trackingStartTime: iso(T0 - 10 * INTERVAL), outages: [ended] })
+      const { tabA, tabB } = twoTabs({ a: [true] })
+      tabA.monitor.start()
+      tabB.monitor.start()
+      await flush()
+
+      tabB.monitor.setOutageFlagged('old', true)
+      await flush()
+      expect(stored().outages[0].flagged).toBe(true)
+      expect(tabB.monitor.getSnapshot().outages[0].flagged).toBe(true)
+
+      tabB.monitor.deleteOutage('old')
+      await flush()
+      expect(stored().outages).toEqual([])
+      expect(tabA.monitor.getSnapshot().outages).toEqual([])
+    })
+
+    describe('when the leader stops responding without closing', () => {
+      // The leader's check never finishes, so it goes quiet but keeps the lock.
+      function stuckLeader(browser = createBrowser(), b: boolean[] = [true, true]) {
+        const stuck = deferredCheck()
+        const tabA = setup(stuck.check, { coordinator: browser.tab() })
+        const tabB = setup(b, { coordinator: browser.tab() })
+        return { browser, stuck, tabA, tabB }
+      }
+
+      it('a follower takes over once it has heard nothing for too long', async () => {
+        const { tabA, tabB } = stuckLeader()
+        tabA.monitor.start()
+        await flush()
+        tabB.monitor.start()
+        await flush()
+        expect(tabB.monitor.getSnapshot()).toMatchObject({ following: true, leaderUnresponsive: false })
+
+        await jest.advanceTimersByTimeAsync(gapThresholdMs(INTERVAL))
+        expect(tabB.monitor.getSnapshot().role).toBe('follower') // silence this short is normal
+
+        // Fake timers run a 0 ms timer set during a tick 1 ms later, hence the extra millisecond.
+        await jest.advanceTimersByTimeAsync(INTERVAL + 1)
+        expect(tabB.monitor.getSnapshot().role).toBe('leader')
+        expect(tabB.check).toHaveBeenCalledTimes(1)
+        // The old leader is told it lost the lock, and mirrors the new one.
+        expect(tabA.monitor.getSnapshot()).toMatchObject({ role: 'follower', following: true })
+      })
+
+      it('does not take over just because this tab was asleep too', async () => {
+        const { tabA, tabB } = stuckLeader()
+        tabA.monitor.start()
+        await flush()
+        tabB.monitor.start()
+        await flush()
+
+        // The computer sleeps for an hour: no timers run, but the clock moves on.
+        jest.setSystemTime(Date.now() + 60 * 60_000)
+        await jest.advanceTimersByTimeAsync(INTERVAL)
+        expect(tabB.monitor.getSnapshot().role).toBe('follower')
+
+        // Still nothing from the leader once awake: then it takes over.
+        await jest.advanceTimersByTimeAsync(gapThresholdMs(INTERVAL) + INTERVAL + 1)
+        expect(tabB.monitor.getSnapshot().role).toBe('leader')
+      })
+
+      it('says the monitoring tab is not responding while taking over', async () => {
+        const browser = createBrowser()
+        const coordinator = browser.tab()
+        const takeOver = jest.fn() // a takeover that doesn't go through, to see the state before it
+        const stuck = deferredCheck()
+        const tabA = setup(stuck.check, { coordinator: browser.tab() })
+        const tabB = setup([], {
+          coordinator: { ...coordinator, requestLeadership: callbacks => ({ ...coordinator.requestLeadership(callbacks), takeOver }) },
+        })
+        tabA.monitor.start()
+        await flush()
+        tabB.monitor.start()
+        await flush()
+
+        await jest.advanceTimersByTimeAsync(gapThresholdMs(INTERVAL) + INTERVAL)
+        expect(takeOver).toHaveBeenCalled()
+        expect(tabB.monitor.getSnapshot().leaderUnresponsive).toBe(true)
+
+        // The leader comes back to life.
+        stuck.resolve(true)
+        await flush()
+        expect(tabB.monitor.getSnapshot().leaderUnresponsive).toBe(false)
+      })
+
+      it('the old leader, when it wakes up, does not overwrite what the new leader saved', async () => {
+        const browser = createBrowser()
+        browser.suspendLostNotices() // it hasn't heard yet that it lost the lock
+        const { stuck, tabA, tabB } = stuckLeader(browser)
+        tabA.monitor.start()
+        await flush()
+        tabB.monitor.start()
+        await flush()
+        expect(readEpoch()).toBe(1)
+
+        await jest.advanceTimersByTimeAsync(gapThresholdMs(INTERVAL) + INTERVAL + 1)
+        expect(tabB.monitor.getSnapshot().role).toBe('leader')
+        expect(readEpoch()).toBe(2)
+        const saved = stored()
+        expect(saved.lastCheckAt).toBe(Date.now())
+
+        // The check it started before it was suspended finally fails.
+        stuck.resolve(false)
+        await flush()
+        expect(stored()).toEqual(saved)
+        expect(tabA.monitor.getSnapshot()).toMatchObject({ role: 'follower', following: true })
+
+        browser.deliverLostNotices()
+        await flush()
+        expect(tabA.monitor.getSnapshot().role).toBe('follower')
+      })
     })
 
     it('only the leader reports outages starting and ending', async () => {

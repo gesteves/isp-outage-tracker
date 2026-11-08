@@ -10,26 +10,28 @@ Tests are organized in the `__tests__` directory:
 __tests__/
 ├── lib/
 │   ├── monitor.test.ts               # State machine: thresholds, backdating, gaps, local vs ISP, retry delay
-│   ├── connectivity-monitor.test.ts  # Runner: scheduling, persistence, ISP, notifications, multiple tabs
-│   ├── tab-coordinator.test.ts       # Leader election (Web Locks) and messaging (BroadcastChannel)
-│   ├── storage.test.ts               # Versioned data, validation, migration from version 1
+│   ├── connectivity-monitor.test.ts  # Runner: scheduling, persistence, ISP, notifications, editing outages, multiple tabs, takeover
+│   ├── tab-coordinator.test.ts       # Leader election (Web Locks), takeover (steal) and messaging (BroadcastChannel)
+│   ├── storage.test.ts               # Versioned data, validation, migration from version 1, leadership epoch
 │   ├── settings.test.ts              # Per-device settings and cross-tab sync
-│   ├── stats.test.ts                 # Honest uptime, monitored time per day, daily breakdown
+│   ├── stats.test.ts                 # Honest uptime, monitored time per day, daily breakdown, recent windows
 │   ├── format.test.ts                # Durations, percentages, relative times
-│   ├── csv.test.ts                   # CSV columns and download
+│   ├── csv.test.ts                   # CSV columns, formula guard, BOM and dated download
 │   ├── notifications.test.ts         # Status-change notifications and their conditions
 │   ├── config.test.ts                # Env var parsing and fallbacks
 │   ├── connectivity.test.ts          # Multi-endpoint connectivity checking
 │   └── isp-detection.test.ts         # ISP auto-detection with caching
 ├── hooks/
-│   ├── useConnectivityMonitor.test.tsx  # React hook, StrictMode, network-change events
+│   ├── useConnectivityMonitor.test.tsx  # React hook, StrictMode, network-change events, reconnect delay
 │   ├── useWakeLock.test.tsx             # Keep screen on: re-acquiring, refusals, release
 │   └── useDocumentStatus.test.tsx       # Status in the tab title and favicon
 └── components/
     ├── StatusIndicator.test.tsx  # Up / down / checking display
-    ├── StatsDisplay.test.tsx     # Uptime, monitored time, ISP vs local figures
+    ├── Dashboard.test.tsx        # Loading state, which tab monitors, check now, keep screen on
+    ├── NotificationToggle.test.tsx  # Permission requests, refusals, changes made in browser settings
+    ├── StatsDisplay.test.tsx     # Uptime, monitored time, ISP vs local figures, recent windows
     ├── DailyChart.test.tsx       # Bars, selection, keyboard, legend, table view
-    ├── OutageList.test.tsx       # History, sorting, ISP and local badges
+    ├── OutageList.test.tsx       # History, sorting, badges, pages, flag and delete
     ├── ConfirmDialog.test.tsx    # Native <dialog>: confirm, cancel, Esc, backdrop
     └── Toggle.test.tsx           # Accessible switch
 ```
@@ -54,7 +56,7 @@ The test suite covers:
 ### Core Functionality
 - ✅ **Monitor**: When outages start and end, failure thresholds, gaps in monitoring, local vs ISP causes
 - ✅ **Monitor runner**: One check at a time, fast re-checks, StrictMode safety, persistence, clearing history
-- ✅ **Multiple tabs**: Only the leader checks; followers mirror it; handover when the leader closes
+- ✅ **Multiple tabs**: Only the leader checks; followers mirror it; handover when the leader closes; takeover when it stops responding, without the old leader writing over the new one
 - ✅ **Storage**: Versioned data, validation, and migration from the old format
 - ✅ **Stats**: Uptime over monitored time, daily breakdown split at local midnight
 - ✅ **Notifications, wake lock, tab title**: Browser APIs faked in jsdom
@@ -64,7 +66,7 @@ The test suite covers:
 
 ### Not covered by Jest
 
-The service worker (`public/sw.js`) and real cross-tab behavior need a real browser. Check them against the production build (`npm run build && npm start`): load the page, confirm in DevTools → Application that the service worker is active, then stop the server and reload; the app should still load. Open a second tab to see "Monitoring in another tab".
+The service worker (`public/sw.js`) and real cross-tab behavior need a real browser. Check them against the production build (`npm run build && npm start`): load the page, confirm in DevTools → Application that the service worker is active, then stop the server and reload; the app should still load. Open a second tab to see "Monitoring in another tab". To try a takeover, pause the monitoring tab in the DevTools debugger for more than three minutes (with the default interval): the other tab should say it isn't responding and start checking, and the paused tab should go back to mirroring once resumed.
 
 ## Test Framework
 
@@ -90,7 +92,9 @@ describe('StatusIndicator', () => {
 ```
 
 Time-dependent logic is easiest to test through the pure state machine in `lib/monitor.ts`, or with
-`jest.useFakeTimers()` and an injected `check` function for `createConnectivityMonitor`.
+`jest.useFakeTimers()` and an injected `check` function for `createConnectivityMonitor`. Note that
+fake timers run a 0 ms timer created during a tick 1 ms later, so advance one extra millisecond when
+a check is scheduled from inside another timer.
 
 ### Mocking
 

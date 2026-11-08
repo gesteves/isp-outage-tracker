@@ -1,37 +1,55 @@
 import { CHANNEL_NAME, LOCK_NAME, createTabCoordinator, soloCoordinator } from '@/lib/tab-coordinator'
 
-/** Minimal fake of navigator.locks: one holder, a FIFO queue, AbortSignal support. */
+/** Minimal fake of navigator.locks: one holder, a FIFO queue, AbortSignal and steal support. */
 function installFakeLocks() {
-  type Pending = { callback: () => Promise<void> | undefined; resolve: () => void; reject: (e: unknown) => void; signal?: AbortSignal }
+  type Pending = { callback: () => Promise<void> | undefined; resolve: () => void; reject: (e: unknown) => void }
   const queue: Pending[] = []
-  let held = false
+  let holder: Pending | null = null
   const requested: string[] = []
+  const abortError = () => Object.assign(new Error('aborted'), { name: 'AbortError' })
 
-  const next = () => {
-    if (held || queue.length === 0) return
-    const item = queue.shift()!
-    held = true
+  const grant = (item: Pending) => {
+    holder = item
     void Promise.resolve().then(async () => {
       try {
         await item.callback()
       } finally {
-        held = false
-        item.resolve()
-        next()
+        // A stolen lock was already handed over; its callback finishing changes nothing.
+        if (holder === item) {
+          holder = null
+          item.resolve()
+          next()
+        }
       }
     })
   }
 
+  const next = () => {
+    if (holder || queue.length === 0) return
+    grant(queue.shift()!)
+  }
+
   const locks = {
-    request: (name: string, options: { signal?: AbortSignal }, callback: () => Promise<void> | undefined) =>
+    request: (
+      name: string,
+      options: { signal?: AbortSignal; steal?: boolean },
+      callback: () => Promise<void> | undefined,
+    ) =>
       new Promise<void>((resolve, reject) => {
         requested.push(name)
-        const item: Pending = { callback, resolve, reject, signal: options.signal }
+        const item: Pending = { callback, resolve, reject }
+        if (options.steal) {
+          const previous = holder
+          holder = null
+          previous?.reject(abortError())
+          grant(item)
+          return
+        }
         options.signal?.addEventListener('abort', () => {
           const index = queue.indexOf(item)
           if (index !== -1) {
             queue.splice(index, 1)
-            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+            reject(abortError())
           }
         })
         queue.push(item)
@@ -39,8 +57,10 @@ function installFakeLocks() {
       }),
   }
   Object.defineProperty(navigator, 'locks', { value: locks, configurable: true })
-  return { requested, isHeld: () => held }
+  return { requested, isHeld: () => holder !== null }
 }
+
+const callbacks = (onAcquired: () => void = () => {}, onLost: () => void = () => {}) => ({ onAcquired, onLost })
 
 /** Minimal fake BroadcastChannel that delivers to other instances with the same name. */
 class FakeChannel {
@@ -78,8 +98,9 @@ describe('tab coordinator', () => {
       const coordinator = createTabCoordinator()
       expect(coordinator.shared).toBe(false)
       const onAcquired = jest.fn()
-      coordinator.requestLeadership(onAcquired)
+      const leadership = coordinator.requestLeadership(callbacks(onAcquired))
       expect(onAcquired).toHaveBeenCalledTimes(1)
+      expect(() => leadership.takeOver()).not.toThrow()
     })
 
     it('soloCoordinator never delivers messages', () => {
@@ -104,14 +125,14 @@ describe('tab coordinator', () => {
 
       const aLeads = jest.fn()
       const bLeads = jest.fn()
-      const releaseA = a.requestLeadership(aLeads)
-      b.requestLeadership(bLeads)
+      const leaderA = a.requestLeadership(callbacks(aLeads))
+      b.requestLeadership(callbacks(bLeads))
       await flush()
       expect(locks.requested).toEqual([LOCK_NAME, LOCK_NAME])
       expect(aLeads).toHaveBeenCalled()
       expect(bLeads).not.toHaveBeenCalled()
 
-      releaseA()
+      leaderA.release()
       await flush()
       expect(bLeads).toHaveBeenCalled()
     })
@@ -120,12 +141,12 @@ describe('tab coordinator', () => {
       const locks = installFakeLocks()
       const a = createTabCoordinator()
       const b = createTabCoordinator()
-      const releaseA = a.requestLeadership(() => {})
+      const leaderA = a.requestLeadership(callbacks())
       const bLeads = jest.fn()
-      const cancelB = b.requestLeadership(bLeads)
-      cancelB()
+      const waitingB = b.requestLeadership(callbacks(bLeads))
+      waitingB.release()
       await flush()
-      releaseA()
+      leaderA.release()
       await flush()
       expect(bLeads).not.toHaveBeenCalled()
       expect(locks.isHeld()).toBe(false)
@@ -134,11 +155,51 @@ describe('tab coordinator', () => {
     it('does not lead if released before the grant callback runs', async () => {
       const locks = installFakeLocks()
       const onAcquired = jest.fn()
-      const release = createTabCoordinator().requestLeadership(onAcquired)
-      release() // the grant is already queued in a microtask
+      const leadership = createTabCoordinator().requestLeadership(callbacks(onAcquired))
+      leadership.release() // the grant is already queued in a microtask
       await flush()
       expect(onAcquired).not.toHaveBeenCalled()
       expect(locks.isHeld()).toBe(false)
+    })
+
+    it('takes over from a leader that stopped responding, which then waits to lead again', async () => {
+      installFakeLocks()
+      const a = createTabCoordinator()
+      const b = createTabCoordinator()
+      const aLeads = jest.fn()
+      const aLost = jest.fn()
+      const bLeads = jest.fn()
+      a.requestLeadership(callbacks(aLeads, aLost))
+      const leaderB = b.requestLeadership(callbacks(bLeads))
+      await flush()
+      expect(aLeads).toHaveBeenCalledTimes(1)
+
+      leaderB.takeOver()
+      await flush()
+      expect(bLeads).toHaveBeenCalledTimes(1)
+      expect(aLost).toHaveBeenCalledTimes(1)
+
+      // When the new leader's tab closes, the old one is back in line.
+      leaderB.release()
+      await flush()
+      expect(aLeads).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores a takeover by the tab that already leads, or after release', async () => {
+      installFakeLocks()
+      const onAcquired = jest.fn()
+      const onLost = jest.fn()
+      const leadership = createTabCoordinator().requestLeadership(callbacks(onAcquired, onLost))
+      await flush()
+      leadership.takeOver()
+      await flush()
+      expect(onAcquired).toHaveBeenCalledTimes(1)
+      expect(onLost).not.toHaveBeenCalled()
+
+      leadership.release()
+      leadership.takeOver()
+      await flush()
+      expect(onAcquired).toHaveBeenCalledTimes(1)
     })
 
     it('delivers messages to other tabs on the shared channel', () => {

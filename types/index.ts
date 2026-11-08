@@ -10,6 +10,21 @@ export interface Outage {
   cause?: OutageCause;
   /** ISP name last detected before the outage began. */
   isp?: string | null;
+  /** Marked by the user as not a real outage (e.g. a false alarm). Kept, but left out of stats. */
+  flagged?: boolean;
+}
+
+/** One local day of the daily breakdown. */
+export interface DayStats {
+  /** Local date, 'YYYY-MM-DD'. */
+  day: string;
+  /** Local midnight that starts the day (epoch ms). */
+  start: number;
+  ispSeconds: number;
+  localSeconds: number;
+  /** Outages that started this day. */
+  outages: number;
+  monitoredSeconds: number;
 }
 
 export interface OutageStats {

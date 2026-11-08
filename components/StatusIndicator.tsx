@@ -37,7 +37,7 @@ export default function StatusIndicator({ status, currentOutageDuration }: Statu
       <div
         className={`w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center mb-6 transition-colors ${style.circle}`}
       >
-        <span className="text-4xl md:text-6xl">{style.icon}</span>
+        <span aria-hidden="true" className="text-4xl md:text-6xl">{style.icon}</span>
       </div>
 
       <p role="status" aria-live="polite" className="text-3xl md:text-5xl font-bold mb-4 text-center">

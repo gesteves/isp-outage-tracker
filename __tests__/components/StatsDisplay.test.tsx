@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import StatsDisplay from '@/components/StatsDisplay'
-import { OutageStats } from '@/types'
+import { DayStats, OutageStats } from '@/types'
 
 function stats(overrides: Partial<OutageStats> = {}): OutageStats {
   return {
@@ -51,5 +51,26 @@ describe('StatsDisplay', () => {
 
     rerender(<StatsDisplay stats={stats({ localOutages: 1, localDowntime: 120 })} />)
     expect(screen.getByText('+ 1 local network outage (2m), not counted')).toBeInTheDocument()
+  })
+
+  it('shows uptime for today and the last 7 and 30 days', () => {
+    const day = (overrides: Partial<DayStats> = {}): DayStats => ({
+      day: '2024-01-01', start: 0, ispSeconds: 0, localSeconds: 0, outages: 0, monitoredSeconds: 0, ...overrides,
+    })
+    const days = [
+      ...Array.from({ length: 23 }, () => day()), // not monitored
+      ...Array.from({ length: 6 }, () => day({ monitoredSeconds: 86400 })),
+      day({ monitoredSeconds: 3600, ispSeconds: 36 }), // today: 1% down
+    ]
+    render(<StatsDisplay stats={stats()} days={days} />)
+    expect(screen.getByText('Today').nextElementSibling).toHaveTextContent('99.00%')
+    expect(screen.getByText('7 days').nextElementSibling).toHaveTextContent('99.99%')
+    expect(screen.getByText('30 days').nextElementSibling).toHaveTextContent('99.99%')
+  })
+
+  it('shows a dash for a window with no monitoring', () => {
+    const days: DayStats[] = [{ day: '2024-01-01', start: 0, ispSeconds: 0, localSeconds: 0, outages: 0, monitoredSeconds: 0 }]
+    render(<StatsDisplay stats={stats()} days={days} />)
+    expect(screen.getByText('Today').nextElementSibling).toHaveTextContent('—')
   })
 })

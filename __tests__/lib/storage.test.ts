@@ -1,4 +1,16 @@
-import { DATA_KEY, LEGACY_KEYS, TrackerData, clearData, emptyData, loadData, saveData, validateOutage } from '@/lib/storage'
+import {
+  DATA_KEY,
+  EPOCH_KEY,
+  LEGACY_KEYS,
+  TrackerData,
+  claimEpoch,
+  clearData,
+  emptyData,
+  loadData,
+  readEpoch,
+  saveData,
+  validateOutage,
+} from '@/lib/storage'
 import { Outage } from '@/types'
 
 const NOW = Date.parse('2024-01-10T00:00:00Z')
@@ -123,6 +135,31 @@ describe('storage', () => {
 
     it('drops unknown causes', () => {
       expect(validateOutage({ ...completed, cause: 'aliens' })).not.toHaveProperty('cause')
+    })
+
+    it('keeps the flag on outages marked as not real, and nothing else', () => {
+      expect(validateOutage({ ...completed, flagged: true })?.flagged).toBe(true)
+      expect(validateOutage({ ...completed, flagged: 'yes' })).not.toHaveProperty('flagged')
+    })
+  })
+
+  describe('leadership epoch', () => {
+    it('starts at 0 and counts up with each claim', () => {
+      expect(readEpoch()).toBe(0)
+      expect(claimEpoch()).toBe(1)
+      expect(claimEpoch()).toBe(2)
+      expect(readEpoch()).toBe(2)
+    })
+
+    it('treats garbage as 0', () => {
+      localStorage.setItem(EPOCH_KEY, 'banana')
+      expect(readEpoch()).toBe(0)
+    })
+
+    it('survives clearing the history', () => {
+      claimEpoch()
+      clearData()
+      expect(readEpoch()).toBe(1)
     })
   })
 })

@@ -70,6 +70,8 @@ export function useWakeLock(enabled: boolean): WakeLockState {
       disposed = true;
       document.removeEventListener('visibilitychange', onVisibilityChange);
       void sentinel?.release().catch(() => {});
+      // Forget a refusal once turned off (or retrying), so it doesn't show again on re-enable.
+      setError(null);
     };
   }, [supported, enabled, attempt]);
 

@@ -7,15 +7,15 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 ## Features
 
 - 📊 **Monitoring**: checks connectivity every minute, and every 10 seconds while something looks wrong
-- 📈 **Honest uptime**: uptime is computed over the time the app was actually watching, not since you first opened it
+- 📈 **Honest uptime**: uptime is computed over the time the app was actually watching, not since you first opened it, with today, the last 7 days and the last 30 days next to the all-time figure
 - 🏠 **Local vs. ISP outages**: outages while your device had no network at all (Wi-Fi off, cable unplugged) are tagged "Local network" and don't count against your ISP
 - 📅 **Daily chart**: downtime per day for the last 30 days, with days the app wasn't running shown as "not monitored"
-- 📝 **Outage history**: start, end, duration, cause and ISP for every outage
+- 📝 **Outage history**: start, end, duration, cause and ISP for every outage; mark a false alarm as "not an outage" or delete it
 - 📥 **CSV export**: local and ISO 8601 timestamps, durations in seconds and minutes, cause and ISP
 - 🔔 **Status notifications**: optional notifications when the internet goes down and when it comes back
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
 - 📴 **Works offline**: installable, and still loads if you reload it during an outage
-- 🗂️ **Multi-tab safe**: with several tabs open, only one runs checks; the others mirror it
+- 🗂️ **Multi-tab safe**: with several tabs open, only one runs checks; the others mirror it, and take over if it stops responding
 - 🔍 **ISP detection**: shows your ISP's name, and records it on each outage
 
 ## How It Works
@@ -25,7 +25,7 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 - Each check sends requests to several reliable endpoints (1.1.1.1, 8.8.8.8, cloudflare.com and google.com). The check fails only if **all** of them fail.
 - An outage is logged after consecutive failed checks (default: 2), and its start time is backdated to the **first** failed check.
 - After a failed check, the next one runs in 10 seconds instead of a full interval. Outages are confirmed in about 10 seconds, and recoveries are noticed just as quickly.
-- The app also checks right away when the browser reports the network changing, and when you come back to the tab after its timers were slowed down.
+- The app also checks when the browser reports the network changing: right away when it goes offline, and 2 seconds after it comes back, so a request sent while Wi-Fi is still reconnecting doesn't fail and count a local outage against your ISP. It also checks when you come back to the tab after its timers were slowed down, and whenever you tap **Check now**.
 - Until the first check completes, the dashboard shows "Checking your connection…" instead of guessing.
 
 All checks run client-side, from your browser, so they measure *your* connection.
@@ -35,6 +35,10 @@ All checks run client-side, from your browser, so they measure *your* connection
 If every failed check during an outage happened while the device reported no network at all, the outage is tagged **Local network**: the problem was on your side, not your ISP's. If even one failure happened while the device had a network, it counts as an ISP outage. For example, after a router reboot Wi-Fi comes back, but the internet doesn't yet.
 
 Local outages appear in the history and the chart but are left out of ISP uptime and downtime.
+
+### False alarms
+
+Each outage that has ended can be marked **Not an outage**: it stays in the history (dimmed, and flagged in the CSV) but is left out of uptime, downtime and the chart. **Count as outage** undoes it. **Delete** removes it entirely. The outage in progress can't be changed until it ends.
 
 ### Uptime
 
@@ -50,7 +54,11 @@ The app can only record what it observes. Sometimes no check runs for more than 
 
 ### Multiple tabs
 
-The first tab to open runs the checks and writes the history. Any other tab shows "Monitoring in another tab" and mirrors it live. Clearing history from any tab clears it everywhere, and when the monitoring tab closes, another open tab takes over. Without Web Locks support (older browsers, or a plain-HTTP LAN address), every tab monitors on its own.
+The first tab to open runs the checks and writes the history. Any other tab shows "Monitoring in another tab" and mirrors it live. Clearing, flagging or deleting from any tab applies everywhere, and when the monitoring tab closes, another open tab takes over.
+
+A monitoring tab can also stop running without closing, e.g. a background tab the browser suspended. If the other tabs hear nothing from it for more than two check intervals plus a minute, one of them says "Monitoring tab isn't responding, taking over…" and takes over. When the old tab runs again, it notices it was replaced and goes back to mirroring, without writing over the new tab's history.
+
+Without Web Locks support (older browsers, or a plain-HTTP LAN address), every tab monitors on its own, and the last tab to save wins.
 
 ## Dashboard Options
 
@@ -66,7 +74,7 @@ Keeps the display awake while the page is visible, using the [Screen Wake Lock A
 
 Shows a notification when an outage starts and when the connection comes back (with how long it was down). Notifications only appear while the dashboard isn't visible, and only from the tab that runs the checks. They're local, so the "down" notification works even with no internet.
 
-- On iPad and iPhone, web notifications only work after **Share → Add to Home Screen**.
+- On iPad and iPhone, web notifications only work after **Share → Add to Home Screen**. iOS also pauses web apps soon after they leave the screen, and a paused app can't check anything, so on those devices a notification only arrives if a check runs before that happens. They're most dependable from a desktop browser tab.
 
 ### Install / offline
 
@@ -76,7 +84,7 @@ In production, a service worker caches the app so it still opens if you reload i
 
 ### Prerequisites
 
-- Node.js 20.9+ (required by Next.js 16; `.nvmrc` pins the current LTS)
+- Node.js 20.9+ (required by Next.js 16; `.nvmrc` pins Node 24, and `.npmrc` makes npm refuse older versions instead of failing later)
 - Netlify account (for deployment, optional)
 
 ### 1. Clone and Install
@@ -154,7 +162,7 @@ All configuration is optional. The app works out of the box with sensible defaul
 
 ### ISP Name
 
-The app detects your ISP name using IP geolocation (ipapi.co) and shows it on the dashboard. The result is cached for an hour, and refreshed after every outage in case the connection came back through a different ISP (e.g. a backup link). Each outage records the ISP that was active before it started.
+The app detects your ISP name using IP geolocation (ipapi.co) and shows it on the dashboard. It's looked up again at most once an hour while the connection is up, and right after every outage in case the connection came back through a different ISP (e.g. a backup link). Each outage records the ISP that was active before it started.
 
 ### Check Interval
 
@@ -177,6 +185,7 @@ Everything is stored in your browser's localStorage:
 - `isp-tracker-data`: outages, tracking start time, monitored time per day, the last check time and any in-progress failure streak. It's versioned; data from earlier versions of the app is migrated automatically the first time it loads.
 - `isp-tracker-settings`: the "keep screen on" and notification toggles, per device.
 - `isp-name-cache`: the detected ISP name, for an hour.
+- `isp-tracker-leader-epoch`: a counter bumped each time a tab takes over checking, so a tab that was replaced while suspended knows not to write.
 
 **Note**: Data is browser-specific. If you open the app in a different browser or device, you won't see the same history.
 

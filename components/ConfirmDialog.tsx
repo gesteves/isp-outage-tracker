@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useEffect, useId, useRef } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -21,6 +21,8 @@ export default function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Unique per dialog: the page can have more than one.
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -32,7 +34,7 @@ export default function ConfirmDialog({
   return (
     <dialog
       ref={ref}
-      aria-labelledby="confirm-dialog-title"
+      aria-labelledby={titleId}
       onCancel={event => {
         // Esc: let React state drive closing, so `open` stays the source of truth.
         event.preventDefault();
@@ -44,7 +46,7 @@ export default function ConfirmDialog({
       }}
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg bg-white p-6 backdrop:bg-black/50"
     >
-      <h2 id="confirm-dialog-title" className="text-xl font-bold mb-4">{title}</h2>
+      <h2 id={titleId} className="text-xl font-bold mb-4">{title}</h2>
       <div className="text-gray-600 mb-6">{children}</div>
       <div className="flex gap-3 justify-end">
         <button

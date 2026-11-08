@@ -77,6 +77,7 @@ export function validateOutage(value: unknown): Outage | null {
   const outage: Outage = { id: o.id, startTime: o.startTime, endTime, duration };
   if (o.cause === 'isp' || o.cause === 'local') outage.cause = o.cause as OutageCause;
   if (typeof o.isp === 'string' || o.isp === null) outage.isp = o.isp as string | null;
+  if (o.flagged === true) outage.flagged = true;
   return outage;
 }
 
@@ -173,4 +174,24 @@ export function clearData(): void {
   if (!hasWindow()) return;
   localStorage.removeItem(DATA_KEY);
   Object.values(LEGACY_KEYS).forEach(key => localStorage.removeItem(key));
+}
+
+/**
+ * Leadership epoch: each tab that takes over checking claims the next number. A
+ * leader that sees a newer one has been replaced (e.g. it was suspended and another
+ * tab took the lock), so it must stop writing. Kept apart from the tracker data so
+ * it's cheap to read before every write, and survives clearing history.
+ */
+export const EPOCH_KEY = 'isp-tracker-leader-epoch';
+
+export function readEpoch(): number {
+  if (!hasWindow()) return 0;
+  const value = Number(localStorage.getItem(EPOCH_KEY));
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+export function claimEpoch(): number {
+  const next = readEpoch() + 1;
+  if (hasWindow()) localStorage.setItem(EPOCH_KEY, String(next));
+  return next;
 }

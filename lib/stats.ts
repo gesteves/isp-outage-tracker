@@ -1,4 +1,4 @@
-import { Outage, OutageStats } from '@/types';
+import { DayStats, Outage, OutageStats } from '@/types';
 import { gapThresholdMs } from '@/lib/monitor';
 
 export interface StatsInput {
@@ -7,18 +7,6 @@ export interface StatsInput {
   lastCheckAt: number | null;
   monitoredByDay: Record<string, number>;
   legacyMonitoredMs: number;
-}
-
-export interface DayStats {
-  /** Local date, 'YYYY-MM-DD'. */
-  day: string;
-  /** Local midnight that starts the day (epoch ms). */
-  start: number;
-  ispSeconds: number;
-  localSeconds: number;
-  /** Outages that started this day. */
-  outages: number;
-  monitoredSeconds: number;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -109,6 +97,8 @@ export function calculateStats(input: StatsInput, now: number, intervalMs: numbe
   let localOutages = 0;
   let localDowntime = 0;
   for (const outage of outages) {
+    // Flagged by the user as not a real outage: that time counts as up.
+    if (outage.flagged) continue;
     const seconds = outageSeconds(outage, edge);
     if (outage.cause === 'local') {
       localOutages += 1;
@@ -175,6 +165,7 @@ export function dailyBreakdown(
   }
 
   for (const outage of outages) {
+    if (outage.flagged) continue;
     const startMs = Date.parse(outage.startTime);
     const started = byKey.get(dayKey(startMs));
     if (started) started.outages += 1;
@@ -187,4 +178,22 @@ export function dailyBreakdown(
   }
 
   return result;
+}
+
+/**
+ * ISP uptime over the last `n` days of a daily breakdown (today included), with the
+ * same formula as the all-time figure. Null when none of that time was monitored.
+ */
+export function windowUptime(days: DayStats[], n: number): number | null {
+  let monitored = 0;
+  let isp = 0;
+  let local = 0;
+  for (const day of days.slice(-n)) {
+    monitored += day.monitoredSeconds;
+    isp += day.ispSeconds;
+    local += day.localSeconds;
+  }
+  const observable = monitored - local;
+  if (observable <= 0) return null;
+  return Math.max(0, Math.min(100, ((observable - isp) / observable) * 100));
 }

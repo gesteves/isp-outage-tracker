@@ -5,8 +5,9 @@ import {
   dailyBreakdown,
   dayKey,
   startOfNextDay,
+  windowUptime,
 } from '@/lib/stats'
-import { Outage } from '@/types'
+import { DayStats, Outage } from '@/types'
 
 // Local-time dates, so day boundaries are right in any timezone. (Mid-January: no DST change.)
 const local = (day: number, hour = 0, minute = 0) => new Date(2024, 0, day, hour, minute).getTime()
@@ -145,6 +146,21 @@ describe('calculateStats', () => {
     expect(stats.ispDowntime).toBe((H + cap) / 1000)
   })
 
+  it('leaves outages flagged as not real out of the figures', () => {
+    const lastCheckAt = local(11)
+    const stats = calculateStats(
+      input({
+        lastCheckAt,
+        monitoredByDay: { '2024-01-10': 24 * H },
+        outages: [{ ...outage(local(10, 1), local(10, 2)), flagged: true }, outage(local(10, 3), local(10, 4))],
+      }),
+      lastCheckAt,
+      INTERVAL,
+    )
+    expect(stats.ispOutages).toBe(1)
+    expect(stats.ispDowntime).toBe(3600)
+  })
+
   it('never reports uptime outside 0-100', () => {
     const stats = calculateStats(
       input({ monitoredByDay: { '2024-01-15': H }, outages: [outage(local(15, 0), local(15, 5))] }),
@@ -205,8 +221,37 @@ describe('dailyBreakdown', () => {
     expect(days[0].ispSeconds).toBe(3600)
   })
 
+  it('leaves outages flagged as not real out of the chart', () => {
+    const days = dailyBreakdown(
+      input({ outages: [{ ...outage(local(19, 1), local(19, 2)), flagged: true }] }),
+      now,
+      INTERVAL,
+      3,
+    )
+    expect(days.every(d => d.ispSeconds === 0 && d.outages === 0)).toBe(true)
+  })
+
   it('ignores outages outside the window', () => {
     const days = dailyBreakdown(input({ outages: [outage(local(1, 1), local(1, 2))] }), now, INTERVAL, 7)
     expect(days.every(d => d.ispSeconds === 0 && d.outages === 0)).toBe(true)
+  })
+})
+
+describe('windowUptime', () => {
+  const day = (monitoredSeconds: number, ispSeconds = 0, localSeconds = 0): DayStats => ({
+    day: '2024-01-01', start: 0, monitoredSeconds, ispSeconds, localSeconds, outages: 0,
+  })
+
+  it('sums the last n days with the all-time formula', () => {
+    // Local downtime is left out of the observable time; ISP downtime counts against it.
+    const days = [day(86400, 0, 0), day(86400, 0, 3600), day(86400, 1692, 3600)]
+    expect(windowUptime(days, 1)).toBeCloseTo((82800 - 1692) / 82800 * 100)
+    expect(windowUptime(days, 2)).toBeCloseTo((165600 - 1692) / 165600 * 100)
+    expect(windowUptime(days, 3)).toBeCloseTo((252000 - 1692) / 252000 * 100)
+  })
+
+  it('is null when nothing in the window was monitored', () => {
+    expect(windowUptime([day(86400), day(0)], 1)).toBeNull()
+    expect(windowUptime([], 7)).toBeNull()
   })
 })

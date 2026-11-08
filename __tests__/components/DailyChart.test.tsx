@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import DailyChart, { axisScale } from '@/components/DailyChart'
-import { DayStats } from '@/lib/stats'
+import { DayStats } from '@/types'
 
 function day(n: number, overrides: Partial<DayStats> = {}): DayStats {
   const start = new Date(2024, 0, n).getTime()
