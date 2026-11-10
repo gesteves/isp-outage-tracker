@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { isAppleMobile, isStandalone, requestNotificationPermission } from '@/lib/notifications';
+import { requestNotificationPermission } from '@/lib/notifications';
 import { useNotificationPermission } from '@/hooks/useNotificationPermission';
 import Toggle from '@/components/Toggle';
 
@@ -17,12 +17,8 @@ export default function NotificationToggle({ enabled, onChange }: NotificationTo
   const permission = useNotificationPermission();
   const [hint, setHint] = useState<string | null>(null);
 
-  if (permission === 'unsupported') {
-    // iPad and iPhone only allow web notifications from apps added to the home screen.
-    return isAppleMobile() && !isStandalone() ? (
-      <p className="text-xs text-gray-500">Add to Home Screen to get notified when the status changes.</p>
-    ) : null;
-  }
+  // No toggle where notifications aren't available, e.g. iPad and iPhone outside a home-screen app.
+  if (permission === 'unsupported') return null;
 
   const checked = enabled && permission === 'granted';
   // Turned on here, then blocked in the browser's settings.

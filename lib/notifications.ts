@@ -15,20 +15,6 @@ export function notificationsSupported(): boolean {
   return typeof window !== 'undefined' && 'Notification' in window;
 }
 
-/** iPhone or iPad, including iPads that report a desktop Mac user agent. */
-export function isAppleMobile(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-}
-
-/** Running as an installed home-screen app rather than in a browser tab. */
-export function isStandalone(): boolean {
-  if (typeof window === 'undefined') return false;
-  const legacyIOS = (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return legacyIOS || window.matchMedia?.('(display-mode: standalone)').matches === true;
-}
-
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (!notificationsSupported()) return 'denied';
   return Notification.requestPermission();
