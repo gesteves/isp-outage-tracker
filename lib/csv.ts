@@ -38,7 +38,7 @@ export function buildCsv(outages: Outage[]): string {
       outage.flagged ? 'Not an outage' : '',
     ]);
 
-  return [CSV_HEADERS.join(','), ...rows.map(row => row.map(csvCell).join(','))].join('\n');
+  return [CSV_HEADERS, ...rows].map(row => row.map(csvCell).join(',')).join('\n');
 }
 
 export function exportToCSV(outages: Outage[], now: number = Date.now()): void {

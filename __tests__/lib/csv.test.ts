@@ -14,7 +14,13 @@ describe('buildCsv', () => {
   }
 
   it('starts with the headers', () => {
-    expect(buildCsv([]).split('\n')[0]).toBe(CSV_HEADERS.join(','))
+    expect(rows(buildCsv([]))[0]).toEqual(CSV_HEADERS)
+  })
+
+  it('quotes headers that contain commas, so the header has as many columns as the rows', () => {
+    const [header] = buildCsv([completed]).split('\n')
+    expect(header).toContain('"Start (UTC, ISO 8601)"')
+    expect(header).toContain('"End (UTC, ISO 8601)"')
   })
 
   it('includes ISO timestamps, seconds and minutes, cause and ISP', () => {
