@@ -1,7 +1,7 @@
 import { Outage } from '@/types';
-import { checkConnectivity } from '@/lib/connectivity';
+import { CheckOutcome, checkConnectivity } from '@/lib/connectivity';
 import { CHECK_INTERVAL_MS, FAILURE_THRESHOLD } from '@/lib/config';
-import { detectISP } from '@/lib/isp-detection';
+import { NetworkInfo, detectISP } from '@/lib/isp-detection';
 import {
   TrackerData,
   claimEpoch,
@@ -76,14 +76,14 @@ export interface ConnectivityMonitor {
 }
 
 export interface MonitorDeps {
-  check?: () => Promise<boolean>;
+  check?: () => Promise<CheckOutcome>;
   /** Whether the device reports any network at all (navigator.onLine). */
   deviceOnline?: () => boolean;
   now?: () => number;
   intervalMs?: number;
   threshold?: number;
   newId?: () => string;
-  detectIsp?: (options: { force: boolean }) => Promise<string | null>;
+  detectIsp?: (options: { force: boolean }) => Promise<NetworkInfo | null>;
   /** Called by the leader tab when an outage is confirmed, e.g. to show a notification. */
   onOutageStarted?: (outage: Outage) => void;
   /** Called by the leader tab when the connection is seen coming back. */
@@ -149,7 +149,7 @@ export function createConnectivityMonitor({
   let epoch: number | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let nextCheckAt: number | null = null;
-  let ispName: string | null = null;
+  let network: NetworkInfo | null = null;
   let ispRequest: Promise<void> | null = null;
   let stopFollowing: (() => void) | null = null;
   let leadership: Leadership | null = null;
@@ -180,7 +180,7 @@ export function createConnectivityMonitor({
       lastCheckAt: state.lastCheckAt,
       nextCheckAt: role === 'leader' ? nextCheckAt : null,
       checking: inFlight,
-      ispName,
+      ispName: network?.name ?? null,
       monitoredByDay: data.monitoredByDay,
       legacyMonitoredMs: data.legacyMonitoredMs,
     };
@@ -200,7 +200,7 @@ export function createConnectivityMonitor({
 
   function restoreState() {
     const ongoing = data.outages.find(o => o.endTime === null) ?? null;
-    state = initialMonitorState(ongoing, data.lastCheckAt, data.streak);
+    state = initialMonitorState(ongoing, data.lastCheckAt, data.streak, data.recentLatencies);
   }
 
   function save() {
@@ -212,16 +212,25 @@ export function createConnectivityMonitor({
     }
   }
 
-  async function refreshIsp(force: boolean) {
+  /**
+   * Looks up the ISP, public IP and ASN. `afterOutageIds` are outages that just ended:
+   * what's found is recorded on them as the network after the outage.
+   */
+  async function refreshIsp(force: boolean, afterOutageIds: string[] = []) {
     // A refresh is already on its way; only a forced one is worth a second request.
     if (ispRequest && !force) return;
     const request = (async () => {
       try {
-        const name = await detectIsp({ force });
-        if (name && name !== ispName) {
-          ispName = name;
-          emit();
+        const info = await detectIsp({ force });
+        if (!info) return;
+        const changed =
+          info.name !== network?.name || info.ip !== network?.ip || info.asn !== network?.asn;
+        network = info;
+        if (afterOutageIds.length > 0 && canWrite()) {
+          const after = { ispAfter: info.name, ipAfter: info.ip, asnAfter: info.asn };
+          for (const id of afterOutageIds) editOutage(id, outage => ({ ...outage, ...after }));
         }
+        if (changed) emit();
       } catch (error) {
         console.debug('ISP detection failed:', error);
       }
@@ -314,13 +323,20 @@ export function createConnectivityMonitor({
     }
   }
 
-  function record(online: boolean, at: number, deviceIsOnline: boolean) {
+  function record({ online, failure, latencyMs }: CheckOutcome, at: number, deviceIsOnline: boolean) {
     if (!canWrite()) return;
     const previousCheck = state.lastCheckAt;
     const result = applyCheck(
       state,
-      { online, at, deviceOnline: deviceIsOnline },
-      { threshold, intervalMs, newId, isp: ispName },
+      { online, at, deviceOnline: deviceIsOnline, failure, latencyMs },
+      {
+        threshold,
+        intervalMs,
+        newId,
+        isp: network?.name ?? null,
+        ip: network?.ip ?? null,
+        asn: network?.asn ?? null,
+      },
     );
     state = result.state;
 
@@ -329,20 +345,32 @@ export function createConnectivityMonitor({
     if (previousCheck !== null && !isGap(previousCheck, at, intervalMs)) {
       monitoredByDay = accrueMonitoredTime(monitoredByDay, previousCheck, at);
     }
-    data = { ...data, outages, monitoredByDay, lastCheckAt: at, streak: state.streak };
+    data = {
+      ...data,
+      outages,
+      monitoredByDay,
+      lastCheckAt: at,
+      streak: state.streak,
+      recentLatencies: state.recentLatencies,
+    };
     save();
 
     let ended = false;
+    const restoredIds: string[] = [];
     for (const event of result.events) {
       if (event.type === 'started') notify(onOutageStarted, event.outage);
       if (event.type !== 'ended') continue;
       ended = true;
-      if (!event.gap) notify(onOutageEnded, event.outage);
+      if (event.gap) continue;
+      restoredIds.push(event.outage.id);
+      notify(onOutageEnded, event.outage);
     }
     // After an outage the connection may have come back on a different ISP (e.g. a
-    // failover link), so skip the cache. Otherwise this only fetches once the hour-long
-    // cache expires, which keeps a long-running dashboard's ISP name current.
-    if (ended) void refreshIsp(true);
+    // failover link) or IP, so skip the cache, and record what's found on the outage.
+    // An outage closed by a gap isn't included: "after" would be hours later. Otherwise
+    // this only fetches once the hour-long cache expires, which keeps a long-running
+    // dashboard's ISP name current.
+    if (ended) void refreshIsp(true, restoredIds);
     else if (online) void refreshIsp(false);
   }
 
@@ -356,9 +384,9 @@ export function createConnectivityMonitor({
     const startedGeneration = generation;
     const at = now();
     const onlineBefore = deviceOnline();
-    let online: boolean | null = null;
+    let outcome: CheckOutcome | null = null;
     try {
-      online = await check();
+      outcome = await check();
     } catch (error) {
       console.error('Error checking connectivity:', error);
     }
@@ -367,8 +395,8 @@ export function createConnectivityMonitor({
 
     inFlight = false;
     const stale = startedGeneration !== generation;
-    if (online !== null && !stale && role === 'leader') {
-      record(online, at, deviceIsOnline);
+    if (outcome !== null && !stale && role === 'leader') {
+      record(outcome, at, deviceIsOnline);
     }
 
     if (running && role === 'leader') {

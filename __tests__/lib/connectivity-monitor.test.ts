@@ -1,3 +1,5 @@
+import { CheckOutcome } from '@/lib/connectivity'
+import { NetworkInfo } from '@/lib/isp-detection'
 import { MonitorDeps, MonitorSnapshot, createConnectivityMonitor } from '@/lib/connectivity-monitor'
 import { FAST_RETRY_MS, gapThresholdMs } from '@/lib/monitor'
 import { LEGACY_KEYS, emptyData, loadData, readEpoch, saveData } from '@/lib/storage'
@@ -8,25 +10,31 @@ const INTERVAL = 60_000
 const T0 = Date.parse('2024-01-01T12:00:00Z')
 const iso = (ms: number) => new Date(ms).toISOString()
 const stored = () => loadData().data
+const network = (name: string, ip: string | null = null, asn: string | null = null): NetworkInfo => ({ name, ip, asn })
+
+/** Tests mostly only care whether a check passed: a bare boolean stands for that. */
+type Result = boolean | CheckOutcome
+const toOutcome = (result: Result): CheckOutcome =>
+  typeof result === 'boolean' ? { online: result, latencyMs: null } : result
 
 /** A check whose result the test resolves by hand, to simulate in-flight checks. */
 function deferredCheck() {
-  const resolvers: Array<(online: boolean) => void> = []
+  const resolvers: Array<(result: Result) => void> = []
   const check = jest.fn(
-    () => new Promise<boolean>(resolve => {
+    () => new Promise<Result>(resolve => {
       resolvers.push(resolve)
     }),
   )
-  return { check, resolve: (online: boolean) => resolvers.shift()!(online) }
+  return { check, resolve: (result: Result) => resolvers.shift()!(result) }
 }
 
-function setup(results: boolean[] | (() => Promise<boolean>), deps: MonitorDeps = {}) {
+function setup(results: Result[] | (() => Promise<Result>), deps: MonitorDeps = {}) {
   const check = typeof results === 'function'
     ? results
     : jest.fn(async () => results.shift() ?? true)
   let n = 0
   const monitor = createConnectivityMonitor({
-    check,
+    check: async () => toOutcome(await check()),
     intervalMs: INTERVAL,
     threshold: 2,
     newId: () => `outage-${++n}`,
@@ -203,7 +211,19 @@ describe('createConnectivityMonitor', () => {
 
     await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
     expect(stored().outages).toEqual([
-      { id: 'outage-1', startTime: iso(T0), endTime: null, duration: null, cause: 'isp', isp: null },
+      {
+        id: 'outage-1',
+        startTime: iso(T0),
+        endTime: null,
+        duration: null,
+        cause: 'isp',
+        isp: null,
+        ip: null,
+        asn: null,
+        checkIntervalSeconds: 60,
+        failureThreshold: 2,
+        latencyBeforeMs: null,
+      },
     ])
   })
 
@@ -334,7 +354,7 @@ describe('createConnectivityMonitor', () => {
 
   describe('ISP detection', () => {
     it('detects on start, stamps outages, and re-detects without the cache after recovery', async () => {
-      const detectIsp = jest.fn(async ({ force }: { force: boolean }) => (force ? 'Backup LTE' : 'Comcast'))
+      const detectIsp = jest.fn(async ({ force }: { force: boolean }) => network(force ? 'Backup LTE' : 'Comcast'))
       const { monitor } = setup([false, false, true], { detectIsp })
       monitor.start()
       await flush()
@@ -348,10 +368,64 @@ describe('createConnectivityMonitor', () => {
       expect(detectIsp).toHaveBeenLastCalledWith({ force: true })
       expect(monitor.getSnapshot().ispName).toBe('Backup LTE')
     })
+
+    it('records the network before an outage, and what it is right after', async () => {
+      const detectIsp = jest.fn(async ({ force }: { force: boolean }) =>
+        force ? network('Backup LTE', '198.51.100.2', 'AS21928') : network('Comcast', '203.0.113.7', 'AS7922'),
+      )
+      const { monitor } = setup([false, false, true], { detectIsp })
+      monitor.start()
+      await flush()
+      await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
+      expect(stored().outages[0]).toMatchObject({ isp: 'Comcast', ip: '203.0.113.7', asn: 'AS7922' })
+      expect(stored().outages[0]).not.toHaveProperty('ipAfter')
+
+      await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
+      expect(stored().outages[0]).toMatchObject({
+        endReason: 'restored',
+        ispAfter: 'Backup LTE',
+        ipAfter: '198.51.100.2',
+        asnAfter: 'AS21928',
+      })
+      expect(monitor.getSnapshot().outages[0].ipAfter).toBe('198.51.100.2')
+    })
+
+    it('leaves the network after blank when it cannot be detected', async () => {
+      const detectIsp = jest.fn(async ({ force }: { force: boolean }) => (force ? null : network('Comcast')))
+      const { monitor } = setup([false, false, true], { detectIsp })
+      monitor.start()
+      await flush()
+      await jest.advanceTimersByTimeAsync(2 * FAST_RETRY_MS)
+      expect(stored().outages[0].endTime).not.toBeNull()
+      expect(stored().outages[0]).not.toHaveProperty('ispAfter')
+      expect(monitor.getSnapshot().ispName).toBe('Comcast')
+    })
+  })
+
+  it('records response times, and keeps them for the next tab or reload', async () => {
+    const { monitor } = setup([
+      { online: true, latencyMs: 30 },
+      { online: true, latencyMs: 50 },
+      { online: false, failure: 'dns', latencyMs: 12 },
+      { online: false, failure: 'dns', latencyMs: 12 },
+      { online: true, latencyMs: 70 },
+    ])
+    monitor.start()
+    await flush()
+    await jest.advanceTimersByTimeAsync(INTERVAL)
+    expect(stored().recentLatencies).toEqual([30, 50])
+
+    await jest.advanceTimersByTimeAsync(INTERVAL + FAST_RETRY_MS)
+    expect(stored().outages[0]).toMatchObject({ failure: 'dns', latencyBeforeMs: 40 })
+    expect(stored().streak.failure).toBe('dns')
+
+    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
+    expect(stored().outages[0]).toMatchObject({ endReason: 'restored', latencyAfterMs: 70 })
+    expect(stored().recentLatencies).toEqual([30, 50, 70])
   })
 
   it('keeps the ISP name current in a long session, using the hour-long cache', async () => {
-    const detectIsp = jest.fn<Promise<string | null>, [{ force: boolean }]>(async () => 'Comcast')
+    const detectIsp = jest.fn<Promise<NetworkInfo | null>, [{ force: boolean }]>(async () => network('Comcast'))
     const { monitor } = setup([true, true], { detectIsp })
     monitor.start()
     await flush()
@@ -388,7 +462,21 @@ describe('createConnectivityMonitor', () => {
     monitor.start()
     await flush()
     expect(stored().outages[0].endTime).toBe(iso(T0 - 3 * HOUR))
+    expect(stored().outages[0].endReason).toBe('gap')
     expect(onOutageEnded).not.toHaveBeenCalled()
+  })
+
+  it('does not record the network after on an outage closed by a gap', async () => {
+    const HOUR = 60 * 60_000
+    const ongoing: Outage = { id: 'o', startTime: iso(T0 - 4 * HOUR), endTime: null, duration: null }
+    saveData({ ...emptyData(), outages: [ongoing], trackingStartTime: iso(T0 - 5 * HOUR), lastCheckAt: T0 - 3 * HOUR })
+    const detectIsp = jest.fn(async () => network('Comcast', '203.0.113.7'))
+    const { monitor } = setup([true], { detectIsp })
+    monitor.start()
+    await flush()
+    expect(detectIsp).toHaveBeenLastCalledWith({ force: true })
+    expect(stored().outages[0].endReason).toBe('gap')
+    expect(stored().outages[0]).not.toHaveProperty('ipAfter')
   })
 
   describe('clearHistory', () => {

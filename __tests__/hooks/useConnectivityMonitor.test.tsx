@@ -24,7 +24,7 @@ describe('useConnectivityMonitor', () => {
   })
 
   it('runs one check and records one outage under StrictMode', async () => {
-    mockCheck.mockResolvedValue(false)
+    mockCheck.mockResolvedValue({ online: false, latencyMs: null })
     const { result } = renderHook(() => useConnectivityMonitor(deps), { wrapper: strict })
 
     await act(() => jest.advanceTimersByTimeAsync(0))
@@ -40,14 +40,14 @@ describe('useConnectivityMonitor', () => {
   })
 
   it('leads on its own when tabs cannot coordinate (no Web Locks in jsdom)', async () => {
-    mockCheck.mockResolvedValue(true)
+    mockCheck.mockResolvedValue({ online: true, latencyMs: null })
     const { result } = renderHook(() => useConnectivityMonitor(deps))
     await act(() => jest.advanceTimersByTimeAsync(0))
     expect(result.current.role).toBe('leader')
   })
 
   it('exposes clearHistory', async () => {
-    mockCheck.mockResolvedValue(true)
+    mockCheck.mockResolvedValue({ online: true, latencyMs: null })
     const { result } = renderHook(() => useConnectivityMonitor(deps))
     await act(() => jest.advanceTimersByTimeAsync(0))
     expect(result.current.status).toBe('up')
@@ -57,7 +57,7 @@ describe('useConnectivityMonitor', () => {
   })
 
   it('re-checks when the browser reports a network change, giving a reconnect a moment', async () => {
-    mockCheck.mockResolvedValue(true)
+    mockCheck.mockResolvedValue({ online: true, latencyMs: null })
     renderHook(() => useConnectivityMonitor(deps))
     await act(() => jest.advanceTimersByTimeAsync(0))
     expect(mockCheck).toHaveBeenCalledTimes(1)
@@ -82,7 +82,7 @@ describe('useConnectivityMonitor', () => {
     let deviceOnline = false
     Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => deviceOnline })
     try {
-      mockCheck.mockResolvedValue(false)
+      mockCheck.mockResolvedValue({ online: false, latencyMs: null })
       const { result } = renderHook(() => useConnectivityMonitor(deps))
       await act(() => jest.advanceTimersByTimeAsync(0))
       await act(() => jest.advanceTimersByTimeAsync(FAST_RETRY_MS))
@@ -94,7 +94,7 @@ describe('useConnectivityMonitor', () => {
         window.dispatchEvent(new Event('online'))
         await jest.advanceTimersByTimeAsync(0)
       })
-      mockCheck.mockResolvedValue(true)
+      mockCheck.mockResolvedValue({ online: true, latencyMs: null })
       await act(() => jest.advanceTimersByTimeAsync(RECONNECT_SETTLE_MS))
       expect(result.current.status).toBe('up')
       expect(result.current.outages[0].cause).toBe('local')
@@ -104,7 +104,7 @@ describe('useConnectivityMonitor', () => {
   })
 
   it('stops checking and listening on unmount', async () => {
-    mockCheck.mockResolvedValue(true)
+    mockCheck.mockResolvedValue({ online: true, latencyMs: null })
     const { unmount } = renderHook(() => useConnectivityMonitor(deps))
     await act(() => jest.advanceTimersByTimeAsync(0))
     unmount()

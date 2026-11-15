@@ -24,6 +24,20 @@ const completed: Outage = {
   isp: 'Comcast',
 }
 
+const diagnostics = {
+  endReason: 'restored',
+  checkIntervalSeconds: 60,
+  failureThreshold: 2,
+  failure: 'mixed',
+  ip: '203.0.113.7',
+  asn: 'AS7922',
+  ispAfter: 'Backup LTE',
+  ipAfter: null,
+  asnAfter: 'AS21928',
+  latencyBeforeMs: 42,
+  latencyAfterMs: null,
+} satisfies Partial<Outage>
+
 describe('storage', () => {
   describe('loadData', () => {
     it('returns empty data when nothing is stored', () => {
@@ -42,6 +56,28 @@ describe('storage', () => {
       }
       saveData(data)
       expect(loadData(NOW)).toEqual({ data, changed: false })
+    })
+
+    it('round-trips outage diagnostics, response times and the failure type of a streak', () => {
+      const data: TrackerData = {
+        ...emptyData(),
+        outages: [{ ...completed, ...diagnostics }],
+        streak: { consecutiveFailures: 1, firstFailureAt: NOW - 1000, local: false, failure: 'dns' },
+        recentLatencies: [30, 45],
+      }
+      saveData(data)
+      expect(loadData(NOW)).toEqual({ data, changed: false })
+    })
+
+    it('keeps only the last few valid response times', () => {
+      localStorage.setItem(DATA_KEY, JSON.stringify({
+        ...emptyData(),
+        recentLatencies: [1, 'x', 2, -3, 3, 4, 5, 6],
+        streak: { consecutiveFailures: 1, firstFailureAt: NOW, local: false, failure: 'aliens' },
+      }))
+      const { data } = loadData(NOW)
+      expect(data.recentLatencies).toEqual([2, 3, 4, 5, 6])
+      expect(data.streak).not.toHaveProperty('failure')
     })
 
     it('falls back to empty data on invalid JSON', () => {
@@ -140,6 +176,30 @@ describe('storage', () => {
     it('keeps the flag on outages marked as not real, and nothing else', () => {
       expect(validateOutage({ ...completed, flagged: true })?.flagged).toBe(true)
       expect(validateOutage({ ...completed, flagged: 'yes' })).not.toHaveProperty('flagged')
+    })
+
+    it('keeps valid diagnostics', () => {
+      expect(validateOutage({ ...completed, ...diagnostics })).toEqual({ ...completed, ...diagnostics })
+    })
+
+    it('drops malformed diagnostics', () => {
+      const outage = validateOutage({
+        ...completed,
+        endReason: 'whenever',
+        checkIntervalSeconds: '60',
+        failureThreshold: -1,
+        failure: 'aliens',
+        ip: 42,
+        asn: {},
+        ispAfter: undefined,
+        latencyBeforeMs: -5,
+        latencyAfterMs: 'fast',
+      })
+      expect(outage).toEqual(completed)
+    })
+
+    it('drops an end reason on an outage that has not ended', () => {
+      expect(validateOutage({ ...completed, endTime: null, endReason: 'gap' })).not.toHaveProperty('endReason')
     })
   })
 

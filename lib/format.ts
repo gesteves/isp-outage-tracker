@@ -69,3 +69,20 @@ export function formatTimeAgo(timestamp: string, now: number = Date.now(), local
 export function formatClockTime(timestamp: string | number, locale?: string): string {
   return new Date(timestamp).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 }
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Local date and time with its UTC offset, e.g. "2026-11-09T08:38:46-07:00". Unlike
+ * toLocaleString(), it reads the same in every locale, and the offset is the one in
+ * effect at that moment, so times on either side of a DST change are both right.
+ */
+export function formatLocalIso(timestamp: string | number): string {
+  const d = new Date(timestamp);
+  const offset = -d.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const abs = Math.abs(offset);
+  const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  return `${date}T${time}${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
+}

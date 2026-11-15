@@ -53,6 +53,11 @@ describe('statusMessage', () => {
     expect(statusMessage('down', { ...started, cause: 'local' }).body).toMatch(/· Local network$/)
     expect(statusMessage('up', { ...ended, cause: 'local' }).body).toMatch(/· Local network$/)
   })
+
+  it('mentions DNS-only outages', () => {
+    expect(statusMessage('down', { ...started, failure: 'dns' }).body).toMatch(/· DNS only$/)
+    expect(statusMessage('up', { ...ended, failure: 'mixed' }).body).not.toMatch(/DNS/)
+  })
 })
 
 describe('notifyStatusChange', () => {

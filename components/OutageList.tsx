@@ -8,6 +8,24 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 /** Outages shown at first, and added by each "Show more". */
 export const PAGE_SIZE = 25;
 
+function hasTags(outage: Outage): boolean {
+  return Boolean(
+    outage.flagged ||
+      outage.cause === 'local' ||
+      outage.failure === 'dns' ||
+      outage.failure === 'mixed' ||
+      outage.endReason === 'gap' ||
+      outage.isp,
+  );
+}
+
+/** "Comcast", or "Comcast → Backup LTE" when the connection came back on another ISP. */
+function ispLabel(outage: Outage): string | null {
+  if (!outage.isp) return null;
+  if (outage.ispAfter && outage.ispAfter !== outage.isp) return `${outage.isp} → ${outage.ispAfter}`;
+  return outage.isp;
+}
+
 interface OutageListProps {
   outages: Outage[];
   /** Current time, so relative times ("5 minutes ago") stay fresh without reading the clock during render. */
@@ -52,7 +70,7 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
               outage.flagged ? 'opacity-60' : ''
             }`}
           >
-            {(outage.flagged || outage.cause === 'local' || outage.isp) && (
+            {hasTags(outage) && (
               <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
                 {outage.flagged && (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">
@@ -64,7 +82,23 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
                     Local network
                   </span>
                 )}
-                {outage.isp && <span className="text-gray-500">{outage.isp}</span>}
+                {(outage.failure === 'dns' || outage.failure === 'mixed') && (
+                  <span
+                    className="rounded-full bg-purple-100 px-2 py-0.5 font-medium text-purple-800"
+                    title="Sites couldn't be reached by name, but IP addresses still answered."
+                  >
+                    {outage.failure === 'dns' ? 'DNS only' : 'Partly DNS'}
+                  </span>
+                )}
+                {outage.endReason === 'gap' && (
+                  <span
+                    className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600"
+                    title="The app stopped checking during this outage, so it may have lasted longer."
+                  >
+                    Monitoring stopped
+                  </span>
+                )}
+                {outage.isp && <span className="text-gray-500">{ispLabel(outage)}</span>}
               </div>
             )}
             <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2">

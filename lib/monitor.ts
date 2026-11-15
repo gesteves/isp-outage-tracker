@@ -1,4 +1,4 @@
-import { Outage } from '@/types';
+import { CheckFailure, Outage, OutageEndReason, OutageFailure } from '@/types';
 
 /**
  * Pure connectivity state machine: no React, no timers, no storage.
@@ -15,6 +15,8 @@ export interface FailureStreak {
   firstFailureAt: number | null;
   /** True while every failure in the streak happened with the device reporting no network. */
   local: boolean;
+  /** How the streak's checks failed, once one has reported it. */
+  failure?: OutageFailure;
 }
 
 export interface MonitorState {
@@ -23,10 +25,12 @@ export interface MonitorState {
   /** When the most recent check ran (epoch ms). */
   lastCheckAt: number | null;
   currentOutage: Outage | null;
+  /** Response times (ms) of the last few successful checks, oldest first. */
+  recentLatencies: number[];
 }
 
 export interface MonitorEvent {
-  /** 'updated' means an open outage changed, e.g. its cause went from local to ISP. */
+  /** 'updated' means an open outage changed, e.g. its cause went from local to ISP, or its failure to 'mixed'. */
   type: 'started' | 'updated' | 'ended';
   outage: Outage;
   /**
@@ -42,14 +46,20 @@ export interface CheckResult {
   at: number;
   /** navigator.onLine when the check ran. False means the device itself had no network. */
   deviceOnline?: boolean;
+  /** How a failed check failed. */
+  failure?: CheckFailure;
+  /** Fastest successful response (ms), if anything answered. */
+  latencyMs?: number | null;
 }
 
 export interface MonitorOptions {
   threshold: number;
   intervalMs: number;
   newId: () => string;
-  /** ISP name to record on outages that start during this check. */
+  /** ISP name, public IP and ASN to record on outages that start during this check. */
   isp?: string | null;
+  ip?: string | null;
+  asn?: string | null;
 }
 
 /**
@@ -61,6 +71,9 @@ export const GAP_TOLERANCE_MS = 60_000;
 
 /** How soon to re-check while a failure streak or an outage is open. */
 export const FAST_RETRY_MS = 10_000;
+
+/** How many successful checks' response times to keep, for an outage's "before" figure. */
+export const RECENT_LATENCY_COUNT = 5;
 
 export const EMPTY_STREAK: FailureStreak = Object.freeze({
   consecutiveFailures: 0,
@@ -81,12 +94,14 @@ export function initialMonitorState(
   ongoingOutage: Outage | null,
   lastCheckAt: number | null,
   streak: FailureStreak = EMPTY_STREAK,
+  recentLatencies: number[] = [],
 ): MonitorState {
   return {
     status: ongoingOutage ? 'down' : 'unknown',
     streak,
     lastCheckAt,
     currentOutage: ongoingOutage,
+    recentLatencies,
   };
 }
 
@@ -96,14 +111,36 @@ export function nextCheckDelay(state: MonitorState, intervalMs: number): number 
   return inDoubt ? Math.min(FAST_RETRY_MS, intervalMs) : intervalMs;
 }
 
-function endOutage(outage: Outage, endMs: number): Outage {
+function endOutage(
+  outage: Outage,
+  endMs: number,
+  endReason: OutageEndReason,
+  latencyAfterMs: number | null = null,
+): Outage {
   const startMs = Date.parse(outage.startTime);
   const clampedEnd = Math.max(startMs, endMs);
-  return {
+  const ended: Outage = {
     ...outage,
     endTime: new Date(clampedEnd).toISOString(),
     duration: (clampedEnd - startMs) / 1000,
+    endReason,
   };
+  if (endReason === 'restored') ended.latencyAfterMs = latencyAfterMs;
+  return ended;
+}
+
+/** Combines how an outage's checks have failed so far with how the latest one did. */
+function mergeFailure(sofar: OutageFailure | undefined, latest: CheckFailure | undefined): OutageFailure | undefined {
+  if (!latest) return sofar;
+  if (!sofar) return latest;
+  return sofar === latest ? sofar : 'mixed';
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
 /**
@@ -114,31 +151,36 @@ function endOutage(outage: Outage, endMs: number): Outage {
  * - A success ends the open outage at the time of that check.
  * - An outage is 'local' only while every failure in it happened with the device
  *   reporting no network. One failure with the device online makes it 'isp'.
+ * - Its `failure` becomes 'mixed' once both DNS-only and total failures were seen.
  * - If more than `gapThresholdMs` passed since the previous check (sleep, closed
  *   tab, suspended iPad), only what was observed is recorded. An open outage is
  *   closed at the last check that saw it down, and the failure streak restarts.
  */
 export function applyCheck(
   prev: MonitorState,
-  { online, at, deviceOnline = true }: CheckResult,
-  { threshold, intervalMs, newId, isp = null }: MonitorOptions,
+  { online, at, deviceOnline = true, failure, latencyMs = null }: CheckResult,
+  { threshold, intervalMs, newId, isp = null, ip = null, asn = null }: MonitorOptions,
 ): { state: MonitorState; events: MonitorEvent[] } {
   const events: MonitorEvent[] = [];
   let state = prev;
 
   if (isGap(state.lastCheckAt, at, intervalMs)) {
     if (state.currentOutage && state.lastCheckAt !== null) {
-      events.push({ type: 'ended', outage: endOutage(state.currentOutage, state.lastCheckAt), gap: true });
+      events.push({ type: 'ended', outage: endOutage(state.currentOutage, state.lastCheckAt, 'gap'), gap: true });
     }
     state = initialMonitorState(null, state.lastCheckAt);
   }
 
   if (online) {
     if (state.currentOutage) {
-      events.push({ type: 'ended', outage: endOutage(state.currentOutage, at) });
+      events.push({ type: 'ended', outage: endOutage(state.currentOutage, at, 'restored', latencyMs) });
     }
+    const recentLatencies =
+      latencyMs === null
+        ? state.recentLatencies
+        : [...state.recentLatencies, latencyMs].slice(-RECENT_LATENCY_COUNT);
     return {
-      state: { status: 'up', streak: EMPTY_STREAK, lastCheckAt: at, currentOutage: null },
+      state: { status: 'up', streak: EMPTY_STREAK, lastCheckAt: at, currentOutage: null, recentLatencies },
       events,
     };
   }
@@ -150,6 +192,8 @@ export function applyCheck(
     firstFailureAt: prevStreak.firstFailureAt ?? at,
     local: prevStreak.consecutiveFailures === 0 ? local : prevStreak.local && local,
   };
+  const streakFailure = mergeFailure(prevStreak.consecutiveFailures === 0 ? undefined : prevStreak.failure, failure);
+  if (streakFailure) streak.failure = streakFailure;
 
   let currentOutage = state.currentOutage;
   if (!currentOutage && streak.consecutiveFailures >= threshold) {
@@ -160,11 +204,23 @@ export function applyCheck(
       duration: null,
       cause: streak.local ? 'local' : 'isp',
       isp,
+      ip,
+      asn,
+      checkIntervalSeconds: intervalMs / 1000,
+      failureThreshold: threshold,
+      latencyBeforeMs: median(state.recentLatencies),
     };
+    if (streak.failure) currentOutage.failure = streak.failure;
     events.push({ type: 'started', outage: currentOutage });
-  } else if (currentOutage && currentOutage.cause === 'local' && !local) {
-    currentOutage = { ...currentOutage, cause: 'isp' };
-    events.push({ type: 'updated', outage: currentOutage });
+  } else if (currentOutage) {
+    const next: Outage = { ...currentOutage };
+    if (next.cause === 'local' && !local) next.cause = 'isp';
+    const outageFailure = mergeFailure(next.failure, failure);
+    if (outageFailure) next.failure = outageFailure;
+    if (next.cause !== currentOutage.cause || next.failure !== currentOutage.failure) {
+      currentOutage = next;
+      events.push({ type: 'updated', outage: currentOutage });
+    }
   }
 
   return {
@@ -174,6 +230,7 @@ export function applyCheck(
       streak,
       lastCheckAt: at,
       currentOutage,
+      recentLatencies: state.recentLatencies,
     },
     events,
   };

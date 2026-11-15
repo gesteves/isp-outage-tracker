@@ -1,5 +1,5 @@
-import { Outage, OutageCause } from '@/types';
-import { EMPTY_STREAK, FailureStreak, normalizeOutages } from '@/lib/monitor';
+import { Outage, OutageCause, OutageEndReason, OutageFailure } from '@/types';
+import { EMPTY_STREAK, FailureStreak, RECENT_LATENCY_COUNT, normalizeOutages } from '@/lib/monitor';
 
 /**
  * All tracker data lives under one versioned localStorage key. Only the tab that
@@ -27,6 +27,8 @@ export interface TrackerData {
   legacyMonitoredMs: number;
   /** In-progress failure streak, so a tab that takes over checking can continue it. */
   streak: FailureStreak;
+  /** Response times (ms) of the last few successful checks, for the next outage's "before" figure. */
+  recentLatencies: number[];
 }
 
 export function emptyData(): TrackerData {
@@ -38,6 +40,7 @@ export function emptyData(): TrackerData {
     monitoredByDay: {},
     legacyMonitoredMs: 0,
     streak: EMPTY_STREAK,
+    recentLatencies: [],
   };
 }
 
@@ -49,6 +52,21 @@ function isTimestamp(value: unknown): value is string {
 
 function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+const FAILURES: readonly OutageFailure[] = ['all', 'dns', 'mixed'];
+const END_REASONS: readonly OutageEndReason[] = ['restored', 'gap'];
+
+function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value);
+}
+
+function isStringOrNull(value: unknown): value is string | null {
+  return typeof value === 'string' || value === null;
+}
+
+function isNumberOrNull(value: unknown): value is number | null {
+  return isNonNegativeNumber(value) || value === null;
 }
 
 function parseJSON(raw: string | null): unknown {
@@ -76,8 +94,18 @@ export function validateOutage(value: unknown): Outage | null {
 
   const outage: Outage = { id: o.id, startTime: o.startTime, endTime, duration };
   if (o.cause === 'isp' || o.cause === 'local') outage.cause = o.cause as OutageCause;
-  if (typeof o.isp === 'string' || o.isp === null) outage.isp = o.isp as string | null;
+  if (isStringOrNull(o.isp)) outage.isp = o.isp;
   if (o.flagged === true) outage.flagged = true;
+  if (endTime !== null && isOneOf(o.endReason, END_REASONS)) outage.endReason = o.endReason;
+  if (isNonNegativeNumber(o.checkIntervalSeconds)) outage.checkIntervalSeconds = o.checkIntervalSeconds;
+  if (isNonNegativeNumber(o.failureThreshold)) outage.failureThreshold = o.failureThreshold;
+  if (isOneOf(o.failure, FAILURES)) outage.failure = o.failure;
+  for (const key of ['ip', 'asn', 'ispAfter', 'ipAfter', 'asnAfter'] as const) {
+    const value = o[key];
+    if (isStringOrNull(value)) outage[key] = value;
+  }
+  if (isNumberOrNull(o.latencyBeforeMs)) outage.latencyBeforeMs = o.latencyBeforeMs;
+  if (isNumberOrNull(o.latencyAfterMs)) outage.latencyAfterMs = o.latencyAfterMs;
   return outage;
 }
 
@@ -102,11 +130,18 @@ function validateStreak(value: unknown): FailureStreak {
     ? Math.floor(s.consecutiveFailures)
     : 0;
   if (consecutiveFailures === 0) return EMPTY_STREAK;
-  return {
+  const streak: FailureStreak = {
     consecutiveFailures,
     firstFailureAt: isNonNegativeNumber(s.firstFailureAt) ? s.firstFailureAt : null,
     local: s.local === true,
   };
+  if (isOneOf(s.failure, FAILURES)) streak.failure = s.failure;
+  return streak;
+}
+
+function validateLatencies(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isNonNegativeNumber).slice(-RECENT_LATENCY_COUNT);
 }
 
 function fromStored(value: Record<string, unknown>): TrackerData {
@@ -118,6 +153,7 @@ function fromStored(value: Record<string, unknown>): TrackerData {
     monitoredByDay: validateMonitoredByDay(value.monitoredByDay),
     legacyMonitoredMs: isNonNegativeNumber(value.legacyMonitoredMs) ? value.legacyMonitoredMs : 0,
     streak: validateStreak(value.streak),
+    recentLatencies: validateLatencies(value.recentLatencies),
   };
 }
 

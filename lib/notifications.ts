@@ -21,7 +21,8 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 }
 
 export function statusMessage(change: StatusChange, outage: Outage): { title: string; body: string } {
-  const cause = outage.cause === 'local' ? ' · Local network' : '';
+  const cause =
+    outage.cause === 'local' ? ' · Local network' : outage.failure === 'dns' ? ' · DNS only' : '';
   if (change === 'down') {
     return { title: 'Internet is down', body: `Since ${formatClockTime(outage.startTime)}${cause}` };
   }

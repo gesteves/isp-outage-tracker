@@ -1,7 +1,10 @@
 import {
+  CheckResult,
   FAST_RETRY_MS,
   MonitorEvent,
+  MonitorOptions,
   MonitorState,
+  RECENT_LATENCY_COUNT,
   applyCheck,
   gapThresholdMs,
   initialMonitorState,
@@ -11,7 +14,7 @@ import {
   normalizeOutages,
   upsertOutage,
 } from '@/lib/monitor'
-import { Outage } from '@/types'
+import { CheckFailure, Outage } from '@/types'
 
 const INTERVAL = 60_000
 const T0 = Date.parse('2024-01-01T12:00:00Z')
@@ -118,7 +121,16 @@ describe('monitor state machine', () => {
       const from = initialMonitorState(outage, T0 + INTERVAL)
       const { events } = applyCheck(from, { online: true, at: T0 + 2 * INTERVAL }, makeOptions())
       expect(events).toEqual([
-        { type: 'ended', outage: { ...outage, endTime: iso(T0 + 2 * INTERVAL), duration: 120 } },
+        {
+          type: 'ended',
+          outage: {
+            ...outage,
+            endTime: iso(T0 + 2 * INTERVAL),
+            duration: 120,
+            endReason: 'restored',
+            latencyAfterMs: null,
+          },
+        },
       ])
     })
   })
@@ -182,6 +194,92 @@ describe('monitor state machine', () => {
       const { state, events } = applyCheck(from, { online: false, at: nextMorning }, makeOptions(1))
       expect(events.map(e => e.type)).toEqual(['ended', 'started'])
       expect(state.currentOutage?.startTime).toBe(iso(nextMorning))
+    })
+  })
+
+  describe('diagnostics recorded on outages', () => {
+    /** Feeds full check results (one per interval) into the state machine. */
+    function feed(results: Array<Omit<CheckResult, 'at'>>, options: MonitorOptions = makeOptions()) {
+      let state: MonitorState = initialMonitorState(null, null)
+      const events: MonitorEvent[] = []
+      results.forEach((result, i) => {
+        const next = applyCheck(state, { ...result, at: at(i) }, options)
+        state = next.state
+        events.push(...next.events)
+      })
+      return { state, events }
+    }
+    const up = (latencyMs: number | null) => ({ online: true, latencyMs })
+    const down = (failure: CheckFailure) => ({ online: false, failure, latencyMs: null })
+
+    it('records the settings, network and response time before the outage when it opens', () => {
+      const options = { ...makeOptions(), isp: 'Comcast', ip: '203.0.113.7', asn: 'AS7922' }
+      const { events } = feed([up(40), up(10), up(30), down('all'), down('all')], options)
+      expect(events[0]).toMatchObject({
+        type: 'started',
+        outage: {
+          isp: 'Comcast',
+          ip: '203.0.113.7',
+          asn: 'AS7922',
+          checkIntervalSeconds: 60,
+          failureThreshold: 2,
+          failure: 'all',
+          latencyBeforeMs: 30,
+        },
+      })
+    })
+
+    it('leaves the response time before blank when no check has succeeded yet', () => {
+      const { events } = feed([down('all'), down('all')])
+      expect(events[0].outage.latencyBeforeMs).toBeNull()
+    })
+
+    it('averages the middle two response times when there is an even number', () => {
+      const { events } = feed([up(10), up(21), down('all'), down('all')])
+      expect(events[0].outage.latencyBeforeMs).toBe(16)
+    })
+
+    it('keeps only the last few response times', () => {
+      const { state } = feed([1, 2, 3, 4, 5, 6, 7].map(up))
+      expect(state.recentLatencies).toEqual([3, 4, 5, 6, 7])
+      expect(state.recentLatencies).toHaveLength(RECENT_LATENCY_COUNT)
+    })
+
+    it('tags an outage DNS-only while only names fail, and mixed once everything fails too', () => {
+      const { state, events } = feed([down('dns'), down('dns'), down('all')])
+      expect(events.map(e => [e.type, e.outage.failure])).toEqual([
+        ['started', 'dns'],
+        ['updated', 'mixed'],
+      ])
+      expect(state.streak.failure).toBe('mixed')
+    })
+
+    it('does not report an update when the failure type stays the same', () => {
+      const { events } = feed([down('all'), down('all'), down('all')])
+      expect(events.map(e => e.type)).toEqual(['started'])
+    })
+
+    it('starts a new streak without the previous one’s failure type', () => {
+      const { state } = feed([down('dns'), up(20), down('all')])
+      expect(state.streak.failure).toBe('all')
+    })
+
+    it('records how a restored outage ended and the response time of the check that saw it', () => {
+      const { events } = feed([down('all'), down('all'), up(85)])
+      expect(events[1]).toMatchObject({
+        type: 'ended',
+        outage: { endReason: 'restored', latencyAfterMs: 85 },
+      })
+    })
+
+    it('marks an outage closed by a gap, with no response time after', () => {
+      const outage: Outage = { id: 'o', startTime: iso(T0), endTime: null, duration: null }
+      const from = initialMonitorState(outage, T0, undefined, [20, 30])
+      const { state, events } = applyCheck(from, { online: true, at: T0 + 19 * 60 * 60_000, latencyMs: 50 }, makeOptions())
+      expect(events[0].outage.endReason).toBe('gap')
+      expect(events[0].outage).not.toHaveProperty('latencyAfterMs')
+      // Response times from before the gap are stale.
+      expect(state.recentLatencies).toEqual([50])
     })
   })
 

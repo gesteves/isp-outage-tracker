@@ -91,6 +91,52 @@ describe('OutageList', () => {
     expect(screen.getByText('Comcast')).toBeInTheDocument()
   })
 
+  describe('diagnostics', () => {
+    const base: Outage = {
+      id: 'a',
+      startTime: '2024-01-01T09:00:00Z',
+      endTime: '2024-01-01T09:01:00Z',
+      duration: 60,
+      cause: 'isp',
+    }
+
+    it('marks DNS-only and partly-DNS outages, but not total ones', () => {
+      render(
+        <OutageList
+          outages={[
+            { ...base, id: 'a', failure: 'dns' },
+            { ...base, id: 'b', startTime: '2024-01-01T08:00:00Z', failure: 'mixed' },
+            { ...base, id: 'c', startTime: '2024-01-01T07:00:00Z', failure: 'all' },
+          ]}
+          now={NOW}
+        />,
+      )
+      expect(screen.getAllByText('DNS only')).toHaveLength(1)
+      expect(screen.getAllByText('Partly DNS')).toHaveLength(1)
+    })
+
+    it('marks outages closed because monitoring stopped', () => {
+      render(<OutageList outages={[{ ...base, endReason: 'gap' }, { ...base, id: 'b', endReason: 'restored' }]} now={NOW} />)
+      expect(screen.getAllByText('Monitoring stopped')).toHaveLength(1)
+      expect(screen.getByText('Monitoring stopped')).toHaveAttribute('title', expect.stringMatching(/may have lasted longer/))
+    })
+
+    it('shows when the connection came back on another ISP', () => {
+      render(<OutageList outages={[{ ...base, isp: 'Comcast', ispAfter: 'Backup LTE' }]} now={NOW} />)
+      expect(screen.getByText('Comcast → Backup LTE')).toBeInTheDocument()
+    })
+
+    it('shows just the ISP when it came back on the same one', () => {
+      render(<OutageList outages={[{ ...base, isp: 'Comcast', ispAfter: 'Comcast' }]} now={NOW} />)
+      expect(screen.getByText('Comcast')).toBeInTheDocument()
+    })
+
+    it('does not show public IPs on the page', () => {
+      render(<OutageList outages={[{ ...base, isp: 'Comcast', ip: '203.0.113.7', ipAfter: '198.51.100.2' }]} now={NOW} />)
+      expect(screen.queryByText(/203\.0\.113\.7|198\.51\.100\.2/)).not.toBeInTheDocument()
+    })
+  })
+
   describe('pages', () => {
     const many: Outage[] = Array.from({ length: PAGE_SIZE + 3 }, (_, i) => ({
       id: `o${i}`,

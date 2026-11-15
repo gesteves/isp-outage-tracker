@@ -1,4 +1,4 @@
-import { formatDurationFromSeconds, formatPercentage, formatTimeAgo } from '@/lib/format'
+import { formatDurationFromSeconds, formatLocalIso, formatPercentage, formatTimeAgo } from '@/lib/format'
 
 describe('formatDurationFromSeconds', () => {
   it('should format 0 seconds', () => {
@@ -82,5 +82,36 @@ describe('formatDurationFromSeconds maxParts', () => {
     expect(formatDurationFromSeconds(3600 + 9, { maxParts: 2 })).toBe('1h')
     expect(formatDurationFromSeconds(45, { maxParts: 2 })).toBe('45s')
     expect(formatDurationFromSeconds(0, { maxParts: 2 })).toBe('0s')
+  })
+})
+
+describe('formatLocalIso', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  it('writes the local date and time, the same way in every locale', () => {
+    const ms = Date.parse('2026-11-09T15:38:46.379Z')
+    const d = new Date(ms)
+    const expected =
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+      `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    expect(formatLocalIso(ms).slice(0, 19)).toBe(expected)
+    expect(formatLocalIso(new Date(ms).toISOString())).toBe(formatLocalIso(ms))
+  })
+
+  it('ends with the UTC offset in effect at that moment', () => {
+    // getTimezoneOffset() is minutes *behind* UTC: 420 is UTC−7.
+    jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(420)
+    expect(formatLocalIso(0)).toMatch(/-07:00$/)
+  })
+
+  it('handles offsets ahead of UTC, including half hours', () => {
+    jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330)
+    expect(formatLocalIso(0)).toMatch(/\+05:30$/)
+    jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(0)
+    expect(formatLocalIso(0)).toMatch(/\+00:00$/)
   })
 })

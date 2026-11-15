@@ -11,7 +11,7 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 - 🏠 **Local vs. ISP outages**: outages while your device had no network at all (Wi-Fi off, cable unplugged) are tagged "Local network" and don't count against your ISP
 - 📅 **Daily chart**: downtime per day for the last 30 days, with days the app wasn't running shown as "not monitored"
 - 📝 **Outage history**: start, end, duration, cause and ISP for every outage; mark a false alarm as "not an outage" or delete it
-- 📥 **CSV export**: local and ISO 8601 timestamps, durations in seconds and minutes, cause and ISP
+- 📥 **CSV export**: local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, durations, time since the previous outage, cause and failure type, how the outage ended, ISP, public IP and ASN before and after, response times before and after, and the detection settings
 - 🔔 **Status notifications**: optional notifications when the internet goes down and when it comes back
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
 - 📴 **Works offline**: installable, and still loads if you reload it during an outage
@@ -22,7 +22,9 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 
 ### Checking
 
-- Each check sends requests to several reliable endpoints (1.1.1.1, 8.8.8.8, cloudflare.com and google.com). The check fails only if **all** of them fail.
+- Each check sends requests to cloudflare.com and google.com, which need DNS, and to 1.1.1.1 and 8.8.8.8, which don't. The check fails if **neither** of the named sites answers, since then websites won't load.
+- When a check fails, the IP addresses tell what kind of failure it was: if one of them still answered, it's a **DNS only** failure; if nothing answered, everything failed. An outage that had both kinds is tagged **Partly DNS** (`Mixed` in the CSV).
+- Each outage records the response time of the last few successful checks before it and of the check that saw the connection come back, plus the ISP, public IP and ASN before and right after it. A new IP or ISP after an outage points to a modem restart, a reassigned address or a failover link.
 - An outage is logged after consecutive failed checks (default: 2), and its start time is backdated to the **first** failed check.
 - After a failed check, the next one runs in 10 seconds instead of a full interval. Outages are confirmed in about 10 seconds, and recoveries are noticed just as quickly.
 - The app also checks when the browser reports the network changing: right away when it goes offline, and 2 seconds after it comes back, so a request sent while Wi-Fi is still reconnecting doesn't fail and count a local outage against your ISP. It also checks when you come back to the tab after its timers were slowed down, and whenever you tap **Check now**.
@@ -50,7 +52,7 @@ Time when the app wasn't running doesn't count either way, and the stats card sh
 
 ### Gaps in monitoring
 
-The app can only record what it observes. Sometimes no check runs for more than two check intervals plus a minute: the laptop slept, the tab was closed, or the iPad suspended Safari. When that happens, any open outage is closed at the last check that saw the connection down, and the failure streak restarts. That keeps an outage from stretching across hours when the app wasn't watching. Closing an outage this way doesn't send a "back online" notification.
+The app can only record what it observes. Sometimes no check runs for more than two check intervals plus a minute: the laptop slept, the tab was closed, or the iPad suspended Safari. When that happens, any open outage is closed at the last check that saw the connection down, and the failure streak restarts. That keeps an outage from stretching across hours when the app wasn't watching. Closing an outage this way doesn't send a "back online" notification, and the outage is tagged **Monitoring stopped** (`Ended by: Monitoring stopped` in the CSV), since it may have lasted longer.
 
 ### Multiple tabs
 
