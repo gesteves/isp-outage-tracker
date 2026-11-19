@@ -13,9 +13,30 @@
   --color-viz-muted: #898781;
 }
 
+/*
+ * The same palette's dark steps (validated on the gray-900 card surface). The
+ * de-emphasis and muted gray are shared by both modes.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-viz-series-1: #3987e5;
+    --color-viz-grid: #2c2c2a;
+    --color-viz-baseline: #383835;
+  }
+}
+
 @layer base {
+  /* Native UI (dialogs, <details> markers, scrollbars) follows the system theme. */
+  :root {
+    color-scheme: light dark;
+  }
+
   body {
     color: #171717;
+
+    @variant dark {
+      color: var(--color-gray-100);
+    }
   }
 
   /* Tailwind v4's preflight resets buttons to `cursor: default`. */

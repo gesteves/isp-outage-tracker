@@ -26,7 +26,7 @@ function StatsPlaceholder() {
   return (
     <div aria-hidden="true" className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       {[0, 1, 2].map(i => (
-        <div key={i} className="h-32 bg-white rounded-xl shadow-lg" />
+        <div key={i} className="h-32 bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10" />
       ))}
     </div>
   );
@@ -69,7 +69,7 @@ export default function Dashboard() {
       <button
         type="button"
         onClick={wakeLock.retry}
-        className="font-medium text-blue-600 underline-offset-2 hover:underline"
+        className="font-medium text-blue-600 dark:text-blue-400 underline-offset-2 hover:underline"
       >
         Retry
       </button>
@@ -80,7 +80,7 @@ export default function Dashboard() {
     <div className="max-w-6xl mx-auto px-4 py-8">
       <header className="mb-8">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-2">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-gray-100 mb-2">
             ISP Outage Tracker
           </h1>
           <CheckStatusLine
@@ -113,7 +113,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="bg-white rounded-xl shadow-lg mb-8">
+      <div className="bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10 mb-8">
         <LiveStatusIndicator
           status={monitor.status}
           outageStartTime={monitor.currentOutage?.startTime ?? null}
@@ -124,19 +124,19 @@ export default function Dashboard() {
       {loaded ? <StatsDisplay stats={stats} days={days} /> : <StatsPlaceholder />}
 
       {loaded && stats.trackingStartTime && (
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+        <div className="bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10 p-6 mb-8">
           <DailyChart days={days} />
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+      <div className="bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10 p-6 mb-8">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <h2 className="text-xl md:text-2xl font-bold">Outage History</h2>
           <div className="flex gap-3 w-full md:w-auto">
             <button
               onClick={() => exportToCSV(outages)}
               disabled={outages.length === 0}
-              className="flex-1 md:flex-none px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
+              className="flex-1 md:flex-none px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
             >
               Export CSV
             </button>
@@ -144,7 +144,7 @@ export default function Dashboard() {
               onClick={() => setShowClearConfirm(true)}
               // Also resets uptime and monitored time, so it's useful even with no outages logged.
               disabled={!trackingStartTime}
-              className="flex-1 md:flex-none px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
+              className="flex-1 md:flex-none px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
             >
               Clear Logs
             </button>
@@ -159,7 +159,7 @@ export default function Dashboard() {
             onFlag={monitor.setOutageFlagged}
           />
         ) : (
-          <p className="text-center py-12 text-gray-400">Loading history…</p>
+          <p className="text-center py-12 text-gray-400 dark:text-gray-500">Loading history…</p>
         )}
       </div>
 
