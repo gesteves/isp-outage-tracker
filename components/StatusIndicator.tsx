@@ -11,19 +11,19 @@ interface StatusIndicatorProps {
 const STYLES: Record<ConnectionStatus, { circle: string; text: string; icon: string; label: string }> = {
   up: {
     circle: 'bg-green-500 shadow-lg shadow-green-500/50',
-    text: 'text-green-600',
+    text: 'text-green-600 dark:text-green-400',
     icon: '✓',
     label: 'up',
   },
   down: {
     circle: 'bg-red-500 shadow-lg shadow-red-500/50 animate-pulse',
-    text: 'text-red-600',
+    text: 'text-red-600 dark:text-red-400',
     icon: '✗',
     label: 'down',
   },
   unknown: {
-    circle: 'bg-gray-300 shadow-lg shadow-gray-300/50 animate-pulse',
-    text: 'text-gray-500',
+    circle: 'bg-gray-300 shadow-lg shadow-gray-300/50 dark:bg-gray-600 dark:shadow-gray-600/50 animate-pulse',
+    text: 'text-gray-500 dark:text-gray-400',
     icon: '…',
     label: '',
   },
@@ -51,7 +51,7 @@ export default function StatusIndicator({ status, currentOutageDuration }: Statu
       </p>
 
       {status === 'down' && currentOutageDuration !== null && currentOutageDuration !== undefined && (
-        <p className="text-xl md:text-2xl text-gray-600">
+        <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400">
           It’s been down for {formatDurationFromSeconds(currentOutageDuration)}
         </p>
       )}

@@ -44,16 +44,16 @@ export default function ConfirmDialog({
         // A click on the backdrop lands on the <dialog> element itself.
         if (event.target === event.currentTarget) onCancel();
       }}
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg bg-white p-6 backdrop:bg-black/50"
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg bg-white p-6 backdrop:bg-black/50 dark:bg-gray-900 dark:text-gray-100 dark:backdrop:bg-black/70"
     >
       <h2 id={titleId} className="text-xl font-bold mb-4">{title}</h2>
-      <div className="text-gray-600 mb-6">{children}</div>
+      <div className="text-gray-600 dark:text-gray-400 mb-6">{children}</div>
       <div className="flex gap-3 justify-end">
         <button
           type="button"
           onClick={onCancel}
           autoFocus
-          className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+          className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600 transition-colors"
         >
           Cancel
         </button>

@@ -36,7 +36,7 @@ interface OutageListProps {
   onFlag?: (id: string, flagged: boolean) => void;
 }
 
-const actionClass = 'font-medium text-gray-500 hover:text-gray-800 hover:underline underline-offset-2';
+const actionClass = 'font-medium text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 hover:underline underline-offset-2';
 
 function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -50,7 +50,7 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
 
   if (outages.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
+      <div className="text-center py-12 text-gray-500 dark:text-gray-400">
         <p className="text-lg">No outages recorded yet.</p>
         <p className="text-sm mt-2">Keep this tab open to track outages.</p>
       </div>
@@ -66,25 +66,25 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
         {shown.map(outage => (
           <div
             key={outage.id}
-            className={`bg-white border border-gray-200 rounded-lg p-4 shadow-xs hover:shadow-md transition-shadow ${
+            className={`bg-white border border-gray-200 rounded-lg p-4 shadow-xs hover:shadow-md dark:bg-gray-900 dark:border-gray-800 dark:shadow-none dark:hover:shadow-none dark:hover:border-gray-700 transition-shadow ${
               outage.flagged ? 'opacity-60' : ''
             }`}
           >
             {hasTags(outage) && (
               <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
                 {outage.flagged && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-400/15 dark:text-amber-300">
                     Not counted
                   </span>
                 )}
                 {outage.cause === 'local' && (
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                     Local network
                   </span>
                 )}
                 {(outage.failure === 'dns' || outage.failure === 'mixed') && (
                   <span
-                    className="rounded-full bg-purple-100 px-2 py-0.5 font-medium text-purple-800"
+                    className="rounded-full bg-purple-100 px-2 py-0.5 font-medium text-purple-800 dark:bg-purple-400/15 dark:text-purple-300"
                     title="Sites couldn't be reached by name, but IP addresses still answered."
                   >
                     {outage.failure === 'dns' ? 'DNS only' : 'Partly DNS'}
@@ -92,49 +92,49 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
                 )}
                 {outage.endReason === 'gap' && (
                   <span
-                    className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600"
+                    className="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                     title="The app stopped checking during this outage, so it may have lasted longer."
                   >
                     Monitoring stopped
                   </span>
                 )}
-                {outage.isp && <span className="text-gray-500">{ispLabel(outage)}</span>}
+                {outage.isp && <span className="text-gray-500 dark:text-gray-400">{ispLabel(outage)}</span>}
               </div>
             )}
             <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2">
               <div className="flex-1">
-                <div className="text-sm text-gray-500 mb-1">Started</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Started</div>
                 <div className="font-medium text-base md:text-lg">
                   {new Date(outage.startTime).toLocaleString()}
                 </div>
-                <div className="text-xs text-gray-400 mt-1">
+                <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   {formatTimeAgo(outage.startTime, now)}
                 </div>
               </div>
 
               <div className="flex-1">
-                <div className="text-sm text-gray-500 mb-1">Ended</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Ended</div>
                 <div className="font-medium text-base md:text-lg">
                   {outage.endTime ? (
                     <>
                       {new Date(outage.endTime).toLocaleString()}
-                      <div className="text-xs text-gray-400 mt-1">
+                      <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                         {formatTimeAgo(outage.endTime, now)}
                       </div>
                     </>
                   ) : (
-                    <span className="text-red-500">Ongoing</span>
+                    <span className="text-red-500 dark:text-red-400">Ongoing</span>
                   )}
                 </div>
               </div>
 
               <div className="flex-1">
-                <div className="text-sm text-gray-500 mb-1">Duration</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Duration</div>
                 <div className="font-medium text-base md:text-lg">
                   {outage.duration !== null ? (
                     formatDurationFromSeconds(outage.duration)
                   ) : (
-                    <span className="text-red-500">In progress</span>
+                    <span className="text-red-500 dark:text-red-400">In progress</span>
                   )}
                 </div>
               </div>
@@ -142,7 +142,7 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
 
             {/* The ongoing outage can't be edited until it ends. */}
             {outage.endTime && (onFlag || onDelete) && (
-              <div className="mt-3 flex gap-4 border-t border-gray-100 pt-3 text-sm">
+              <div className="mt-3 flex gap-4 border-t border-gray-100 dark:border-gray-800 pt-3 text-sm">
                 {onFlag && (
                   <button
                     type="button"
@@ -168,7 +168,7 @@ function OutageList({ outages, now, onDelete, onFlag }: OutageListProps) {
           <button
             type="button"
             onClick={() => setVisible(n => n + PAGE_SIZE)}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 dark:text-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors"
           >
             Show {Math.min(PAGE_SIZE, remaining)} more ({remaining} older)
           </button>

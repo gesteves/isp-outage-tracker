@@ -46,8 +46,8 @@ function ReadoutValue({ swatch, value, label }: { swatch: string; value: string;
   return (
     <span className="inline-flex items-center gap-1.5">
       <span aria-hidden="true" className={`inline-block h-0.5 w-3 rounded-full ${swatch}`} />
-      <strong className="font-semibold text-gray-900">{value}</strong>
-      <span className="text-gray-500">{label}</span>
+      <strong className="font-semibold text-gray-900 dark:text-gray-100">{value}</strong>
+      <span className="text-gray-500 dark:text-gray-400">{label}</span>
     </span>
   );
 }
@@ -100,9 +100,9 @@ export default function DailyChart({ days }: DailyChartProps) {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2">
         <figcaption>
           <h2 className="text-xl md:text-2xl font-bold">Daily Downtime</h2>
-          <p className="text-sm text-gray-500">Last {days.length} days · tap a day for details</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Last {days.length} days · tap a day for details</p>
         </figcaption>
-        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600" aria-label="Legend">
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400" aria-label="Legend">
           <li className="inline-flex items-center gap-1.5">
             <span aria-hidden="true" className="size-3 rounded-sm bg-viz-series-1" />
             ISP downtime
@@ -137,7 +137,7 @@ export default function DailyChart({ days }: DailyChartProps) {
           </div>
 
           {peak === 0 && (
-            <p className="absolute inset-x-0 top-1/3 text-center text-sm text-gray-400">
+            <p className="absolute inset-x-0 top-1/3 text-center text-sm text-gray-400 dark:text-gray-500">
               No downtime in the last {days.length} days
             </p>
           )}
@@ -173,12 +173,12 @@ export default function DailyChart({ days }: DailyChartProps) {
                     if (event.pointerType === 'mouse') setHoveredDay(day.day);
                   }}
                   className={`relative flex h-full flex-col items-center justify-end rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    isActive ? 'bg-gray-100' : 'hover:bg-gray-50'
+                    isActive ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
                   }`}
                 >
                   {i === peakIndex && (
                     <span
-                      className="pointer-events-none absolute whitespace-nowrap text-xs font-medium text-gray-700"
+                      className="pointer-events-none absolute whitespace-nowrap text-xs font-medium text-gray-700 dark:text-gray-300"
                       style={{ bottom: `calc(${pct(total)}% + 4px)` }}
                     >
                       {formatDurationFromSeconds(total)}
@@ -200,7 +200,7 @@ export default function DailyChart({ days }: DailyChartProps) {
                   ) : isNotMonitored(day) ? (
                     <span
                       aria-hidden="true"
-                      className="size-2 translate-y-1/2 rounded-full border-2 border-viz-baseline bg-white"
+                      className="size-2 translate-y-1/2 rounded-full border-2 border-viz-baseline bg-white dark:bg-gray-900"
                     />
                   ) : null}
                 </button>
@@ -219,12 +219,12 @@ export default function DailyChart({ days }: DailyChartProps) {
       </div>
 
       <div
-        className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-gray-100 pt-3 text-sm"
+        className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-gray-100 dark:border-gray-800 pt-3 text-sm"
         aria-live="polite"
       >
-        <span className="font-medium text-gray-800">{longDate(shown.start)}</span>
+        <span className="font-medium text-gray-800 dark:text-gray-100">{longDate(shown.start)}</span>
         {isNotMonitored(shown) ? (
-          <span className="text-gray-500">Not monitored</span>
+          <span className="text-gray-500 dark:text-gray-400">Not monitored</span>
         ) : (
           <>
             <ReadoutValue
@@ -240,10 +240,10 @@ export default function DailyChart({ days }: DailyChartProps) {
               />
             )}
             <span>
-              <strong className="font-semibold text-gray-900">{shown.outages}</strong>{' '}
-              <span className="text-gray-500">{shown.outages === 1 ? 'outage' : 'outages'}</span>
+              <strong className="font-semibold text-gray-900 dark:text-gray-100">{shown.outages}</strong>{' '}
+              <span className="text-gray-500 dark:text-gray-400">{shown.outages === 1 ? 'outage' : 'outages'}</span>
             </span>
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               monitored {formatDurationFromSeconds(shown.monitoredSeconds)}
             </span>
           </>
@@ -251,10 +251,10 @@ export default function DailyChart({ days }: DailyChartProps) {
       </div>
 
       <details className="mt-3">
-        <summary className="cursor-pointer text-sm text-gray-500">Show as table</summary>
+        <summary className="cursor-pointer text-sm text-gray-500 dark:text-gray-400">Show as table</summary>
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-left text-sm tabular-nums">
-            <thead className="text-xs text-gray-500">
+            <thead className="text-xs text-gray-500 dark:text-gray-400">
               <tr>
                 <th className="py-1 pr-4 font-medium">Day</th>
                 <th className="py-1 pr-4 font-medium">ISP downtime</th>
@@ -263,12 +263,12 @@ export default function DailyChart({ days }: DailyChartProps) {
                 <th className="py-1 font-medium">Monitored</th>
               </tr>
             </thead>
-            <tbody className="text-gray-700">
+            <tbody className="text-gray-700 dark:text-gray-300">
               {[...days].reverse().map(day => (
-                <tr key={day.day} className="border-t border-gray-100">
+                <tr key={day.day} className="border-t border-gray-100 dark:border-gray-800">
                   <td className="py-1 pr-4">{longDate(day.start)}</td>
                   {isNotMonitored(day) ? (
-                    <td className="py-1 text-gray-400" colSpan={4}>Not monitored</td>
+                    <td className="py-1 text-gray-400 dark:text-gray-500" colSpan={4}>Not monitored</td>
                   ) : (
                     <>
                       <td className="py-1 pr-4">{formatDurationFromSeconds(day.ispSeconds)}</td>

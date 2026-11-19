@@ -33,7 +33,7 @@ export function CheckStatusLine({
   const countdown = nextCheckAt !== null ? Math.max(0, Math.ceil((nextCheckAt - now) / 1000)) : null;
 
   return (
-    <p className="text-sm text-gray-500">
+    <p className="text-sm text-gray-500 dark:text-gray-400">
       {ispName && <span>{ispName} • </span>}
       {leaderUnresponsive ? (
         <span>Monitoring tab isn’t responding, taking over… • </span>
@@ -52,7 +52,7 @@ export function CheckStatusLine({
             <button
               type="button"
               onClick={onCheckNow}
-              className="font-medium text-blue-600 underline-offset-2 hover:underline"
+              className="font-medium text-blue-600 dark:text-blue-400 underline-offset-2 hover:underline"
             >
               Check now
             </button>
