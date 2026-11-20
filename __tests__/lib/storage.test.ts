@@ -9,8 +9,10 @@ import {
   loadData,
   readEpoch,
   saveData,
+  validateAnnotation,
   validateOutage,
 } from '@/lib/storage'
+import { MAX_NOTE_LENGTH } from '@/lib/annotations'
 import { Outage } from '@/types'
 
 const NOW = Date.parse('2024-01-10T00:00:00Z')
@@ -221,5 +223,42 @@ describe('storage', () => {
       clearData()
       expect(readEpoch()).toBe(1)
     })
+  })
+})
+
+describe('notes', () => {
+  const note = { id: 'note-1', time: '2024-01-05T12:00:00.000Z', text: 'Switched routers' }
+
+  it('loads data saved before notes existed, with none', () => {
+    const old: Partial<TrackerData> = { ...emptyData(), trackingStartTime: '2024-01-01T00:00:00.000Z' }
+    delete old.annotations
+    localStorage.setItem(DATA_KEY, JSON.stringify(old))
+    expect(loadData(NOW).data.annotations).toEqual([])
+  })
+
+  it('round-trips notes, oldest first', () => {
+    const earlier = { id: 'note-0', time: '2024-01-02T08:00:00.000Z', text: 'New modem' }
+    saveData({ ...emptyData(), annotations: [note, earlier] })
+    const { data } = loadData(NOW)
+    expect(data.annotations).toEqual([earlier, note])
+  })
+
+  it('drops malformed and duplicate notes', () => {
+    localStorage.setItem(DATA_KEY, JSON.stringify({
+      ...emptyData(),
+      annotations: [note, { ...note, text: 'dupe' }, { id: 'x', time: 'nope', text: 'a' }, { id: 'y', time: note.time, text: '  ' }, null],
+    }))
+    const { data, changed } = loadData(NOW)
+    expect(data.annotations).toEqual([note])
+    expect(changed).toBe(true)
+  })
+
+  it('trims and caps the text, and normalizes the time', () => {
+    expect(validateAnnotation({ ...note, text: '  hi  ', time: '2024-01-05T07:00:00-05:00' }))
+      .toEqual({ ...note, text: 'hi' })
+    expect(validateAnnotation({ ...note, text: 'x'.repeat(MAX_NOTE_LENGTH + 10) })?.text)
+      .toHaveLength(MAX_NOTE_LENGTH)
+    expect(validateAnnotation({ ...note, id: '' })).toBeNull()
+    expect(validateAnnotation({ ...note, text: 5 })).toBeNull()
   })
 })

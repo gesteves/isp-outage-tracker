@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import Dashboard from '@/components/Dashboard'
 import { UseConnectivityMonitor, useConnectivityMonitor } from '@/hooks/useConnectivityMonitor'
 import { WakeLockState, useWakeLock } from '@/hooks/useWakeLock'
@@ -30,6 +30,10 @@ function monitor(overrides: Partial<UseConnectivityMonitor> = {}): UseConnectivi
     checkNow: jest.fn(),
     deleteOutage: jest.fn(),
     setOutageFlagged: jest.fn(),
+    annotations: [],
+    addAnnotation: jest.fn(() => 'note-1'),
+    updateAnnotation: jest.fn(() => true),
+    deleteAnnotation: jest.fn(),
     ...overrides,
   }
 }
@@ -101,6 +105,53 @@ describe('Dashboard', () => {
     expect(screen.getByText(/Next check in 30s/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Check now' }))
     expect(state.checkNow).toHaveBeenCalledTimes(1)
+  })
+
+  describe('notes', () => {
+    it('adds a note at the date and time entered', () => {
+      const state = monitor()
+      mockMonitor.mockReturnValue(state)
+      render(<Dashboard />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add Note' }))
+      const dialog = screen.getByRole('dialog', { name: 'Add Note' })
+      fireEvent.change(within(dialog).getByLabelText('When'), { target: { value: '2026-11-20T12:00' } })
+      fireEvent.change(within(dialog).getByLabelText('Note'), { target: { value: 'Switched routers' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save Note' }))
+
+      expect(state.addAnnotation).toHaveBeenCalledWith({
+        time: new Date(2026, 10, 20, 12, 0).getTime(),
+        text: 'Switched routers',
+      })
+      expect(screen.queryByRole('dialog', { name: 'Add Note' })).not.toBeInTheDocument()
+    })
+
+    it('edits a note, starting from what it says', () => {
+      const note = { id: 'note-1', time: new Date(2026, 10, 20, 12, 0).toISOString(), text: 'Switched routers' }
+      const state = monitor({ annotations: [note] })
+      mockMonitor.mockReturnValue(state)
+      render(<Dashboard />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      const dialog = screen.getByRole('dialog', { name: 'Edit Note' })
+      expect(within(dialog).getByLabelText('When')).toHaveValue('2026-11-20T12:00')
+      expect(within(dialog).getByLabelText('Note')).toHaveValue('Switched routers')
+      fireEvent.change(within(dialog).getByLabelText('When'), { target: { value: '2026-11-20T12:15' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save Note' }))
+
+      expect(state.updateAnnotation).toHaveBeenCalledWith('note-1', {
+        time: new Date(2026, 10, 20, 12, 15).getTime(),
+        text: 'Switched routers',
+      })
+    })
+
+    it('shows notes in the history even before any outage', () => {
+      const note = { id: 'note-1', time: '2026-11-20T12:00:00.000Z', text: 'Switched routers' }
+      mockMonitor.mockReturnValue(monitor({ annotations: [note] }))
+      render(<Dashboard />)
+      expect(screen.getByText('Switched routers', { selector: 'p' })).toBeInTheDocument()
+      expect(screen.queryByText('No outages recorded yet.')).not.toBeInTheDocument()
+    })
   })
 
   describe('keep screen on', () => {

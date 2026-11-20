@@ -569,6 +569,63 @@ describe('createConnectivityMonitor', () => {
     })
   })
 
+  describe('notes', () => {
+    const NOON = Date.parse('2024-01-01T11:00:00Z')
+
+    function noteSetup() {
+      let n = 0
+      return setup([true], { newAnnotationId: () => `note-${++n}` })
+    }
+
+    it('adds, edits and deletes notes, saving each change', () => {
+      const { monitor } = noteSetup()
+      monitor.start()
+
+      expect(monitor.addAnnotation({ time: NOON, text: ' Switched routers ' })).toBe('note-1')
+      const saved = { id: 'note-1', time: iso(NOON), text: 'Switched routers' }
+      expect(stored().annotations).toEqual([saved])
+      expect(monitor.getSnapshot().annotations).toEqual([saved])
+
+      expect(monitor.addAnnotation({ time: iso(NOON - INTERVAL), text: 'Unplugged the modem' })).toBe('note-2')
+      expect(stored().annotations.map(a => a.id)).toEqual(['note-2', 'note-1'])
+
+      expect(monitor.updateAnnotation('note-1', { time: NOON - 2 * INTERVAL, text: 'New router' })).toBe(true)
+      expect(stored().annotations).toEqual([
+        { id: 'note-1', time: iso(NOON - 2 * INTERVAL), text: 'New router' },
+        { id: 'note-2', time: iso(NOON - INTERVAL), text: 'Unplugged the modem' },
+      ])
+
+      monitor.deleteAnnotation('note-2')
+      expect(stored().annotations.map(a => a.id)).toEqual(['note-1'])
+      expect(monitor.getSnapshot().annotations.map(a => a.id)).toEqual(['note-1'])
+    })
+
+    it('refuses notes without text or a valid time', () => {
+      const { monitor } = noteSetup()
+      monitor.start()
+      expect(monitor.addAnnotation({ time: NOON, text: '   ' })).toBeNull()
+      expect(monitor.addAnnotation({ time: 'not a time', text: 'Hi' })).toBeNull()
+      expect(monitor.addAnnotation({ time: Number.NaN, text: 'Hi' })).toBeNull()
+      expect(stored().annotations).toEqual([])
+    })
+
+    it('doesn’t count notes in the outages', () => {
+      const { monitor } = noteSetup()
+      monitor.start()
+      monitor.addAnnotation({ time: NOON, text: 'Switched routers' })
+      expect(monitor.getSnapshot().outages).toEqual([])
+    })
+
+    it('clears them with the rest of the history', () => {
+      const { monitor } = noteSetup()
+      monitor.start()
+      monitor.addAnnotation({ time: NOON, text: 'Switched routers' })
+      monitor.clearHistory()
+      expect(stored().annotations).toEqual([])
+      expect(monitor.getSnapshot().annotations).toEqual([])
+    })
+  })
+
   it('stops checking after stop()', async () => {
     const { monitor, check } = setup([true, true])
     const stop = monitor.start()
@@ -677,6 +734,28 @@ describe('createConnectivityMonitor', () => {
       await flush()
       expect(stored().outages).toEqual([])
       expect(tabA.monitor.getSnapshot().outages).toEqual([])
+    })
+
+    it("a follower's notes go through the leader", async () => {
+      const { tabA, tabB } = twoTabs({ a: [true] })
+      tabA.monitor.start()
+      tabB.monitor.start()
+      await flush()
+
+      const id = tabB.monitor.addAnnotation({ time: T0, text: 'Switched routers' })
+      await flush()
+      expect(stored().annotations).toEqual([{ id, time: iso(T0), text: 'Switched routers' }])
+      expect(tabA.monitor.getSnapshot().annotations).toHaveLength(1)
+      expect(tabB.monitor.getSnapshot().annotations).toHaveLength(1)
+
+      tabB.monitor.updateAnnotation(id!, { time: T0, text: 'New router' })
+      await flush()
+      expect(stored().annotations[0].text).toBe('New router')
+
+      tabB.monitor.deleteAnnotation(id!)
+      await flush()
+      expect(stored().annotations).toEqual([])
+      expect(tabB.monitor.getSnapshot().annotations).toEqual([])
     })
 
     describe('when the leader stops responding without closing', () => {

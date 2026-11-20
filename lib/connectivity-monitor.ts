@@ -1,4 +1,5 @@
-import { Outage } from '@/types';
+import { Annotation, Outage } from '@/types';
+import { AnnotationInput, newAnnotationId, upsertAnnotation } from '@/lib/annotations';
 import { CheckOutcome, checkConnectivity } from '@/lib/connectivity';
 import { CHECK_INTERVAL_MS, FAILURE_THRESHOLD } from '@/lib/config';
 import { NetworkInfo, detectISP } from '@/lib/isp-detection';
@@ -10,6 +11,7 @@ import {
   loadData,
   readEpoch,
   saveData,
+  validateAnnotation,
 } from '@/lib/storage';
 import { accrueMonitoredTime } from '@/lib/stats';
 import { Leadership, TabCoordinator, TabMessage, createTabCoordinator } from '@/lib/tab-coordinator';
@@ -54,6 +56,8 @@ export interface MonitorSnapshot {
   ispName: string | null;
   monitoredByDay: Record<string, number>;
   legacyMonitoredMs: number;
+  /** Notes added to the history, oldest first. */
+  annotations: Annotation[];
 }
 
 export interface ConnectivityMonitor {
@@ -73,6 +77,11 @@ export interface ConnectivityMonitor {
   deleteOutage: (id: string) => void;
   /** Marks an outage that has ended as not a real outage (or unmarks it), leaving it out of stats. */
   setOutageFlagged: (id: string, flagged: boolean) => void;
+  /** Adds a note to the history. Returns its id, or null if the time or text isn't usable. */
+  addAnnotation: (input: AnnotationInput) => string | null;
+  /** Changes a note's time and text. Returns false if they aren't usable. */
+  updateAnnotation: (id: string, input: AnnotationInput) => boolean;
+  deleteAnnotation: (id: string) => void;
 }
 
 export interface MonitorDeps {
@@ -83,6 +92,7 @@ export interface MonitorDeps {
   intervalMs?: number;
   threshold?: number;
   newId?: () => string;
+  newAnnotationId?: () => string;
   detectIsp?: (options: { force: boolean }) => Promise<NetworkInfo | null>;
   /** Called by the leader tab when an outage is confirmed, e.g. to show a notification. */
   onOutageStarted?: (outage: Outage) => void;
@@ -106,6 +116,7 @@ const SERVER_SNAPSHOT: MonitorSnapshot = {
   ispName: null,
   monitoredByDay: {},
   legacyMonitoredMs: 0,
+  annotations: [],
 };
 
 const defaultDeviceOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false;
@@ -127,6 +138,7 @@ export function createConnectivityMonitor({
   intervalMs = CHECK_INTERVAL_MS,
   threshold = FAILURE_THRESHOLD,
   newId = newOutageId,
+  newAnnotationId: newNoteId = newAnnotationId,
   detectIsp = detectISP,
   onOutageStarted,
   onOutageEnded,
@@ -183,6 +195,7 @@ export function createConnectivityMonitor({
       ispName: network?.name ?? null,
       monitoredByDay: data.monitoredByDay,
       legacyMonitoredMs: data.legacyMonitoredMs,
+      annotations: data.annotations,
     };
   }
 
@@ -439,6 +452,8 @@ export function createConnectivityMonitor({
       else if (message.type === 'checkNow') checkNow();
       else if (message.type === 'deleteOutage') deleteOutage(message.id);
       else if (message.type === 'flagOutage') setOutageFlagged(message.id, message.flagged);
+      else if (message.type === 'saveAnnotation') saveAnnotation(message.annotation);
+      else if (message.type === 'deleteAnnotation') deleteAnnotation(message.id);
     } else if (message.type === 'snapshot') {
       remote = message.snapshot;
       lastLeaderAt = now();
@@ -540,6 +555,54 @@ export function createConnectivityMonitor({
     });
   }
 
+  /**
+   * Adds or replaces a note. Followers pass it to the leader, which validates it
+   * again: a message from another tab is not trusted to be well formed.
+   */
+  function saveAnnotation(value: unknown) {
+    const annotation = validateAnnotation(value);
+    if (!annotation) return;
+    if (!canWrite()) {
+      coordinator?.post({ type: 'saveAnnotation', annotation });
+      return;
+    }
+    data = { ...data, annotations: upsertAnnotation(data.annotations, annotation) };
+    save();
+    emit();
+  }
+
+  /** The note as saved, or null if the input isn't usable. */
+  function toAnnotation(id: string, { time, text }: AnnotationInput): Annotation | null {
+    const ms = typeof time === 'number' ? time : Date.parse(time);
+    if (!Number.isFinite(ms)) return null;
+    return validateAnnotation({ id, time: new Date(ms).toISOString(), text });
+  }
+
+  function addAnnotation(input: AnnotationInput): string | null {
+    const annotation = toAnnotation(newNoteId(), input);
+    if (!annotation) return null;
+    saveAnnotation(annotation);
+    return annotation.id;
+  }
+
+  function updateAnnotation(id: string, input: AnnotationInput): boolean {
+    const annotation = toAnnotation(id, input);
+    if (!annotation) return false;
+    saveAnnotation(annotation);
+    return true;
+  }
+
+  function deleteAnnotation(id: string) {
+    if (!canWrite()) {
+      coordinator?.post({ type: 'deleteAnnotation', id });
+      return;
+    }
+    if (!data.annotations.some(a => a.id === id)) return;
+    data = { ...data, annotations: data.annotations.filter(a => a.id !== id) };
+    save();
+    emit();
+  }
+
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -576,6 +639,9 @@ export function createConnectivityMonitor({
     checkSoon,
     deleteOutage,
     setOutageFlagged,
+    addAnnotation,
+    updateAnnotation,
+    deleteAnnotation,
 
     checkIfOverdue() {
       const { nextCheckAt: due, checking } = snapshot;

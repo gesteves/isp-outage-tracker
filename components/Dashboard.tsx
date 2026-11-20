@@ -11,9 +11,11 @@ import { useDocumentStatus } from '@/hooks/useDocumentStatus';
 import { useNow } from '@/hooks/useNow';
 import { useSettings } from '@/hooks/useSettings';
 import { useWakeLock } from '@/hooks/useWakeLock';
+import { Annotation } from '@/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DailyChart from '@/components/DailyChart';
 import { CheckStatusLine, LiveStatusIndicator } from '@/components/LiveStatus';
+import NoteDialog from '@/components/NoteDialog';
 import NotificationToggle from '@/components/NotificationToggle';
 import OutageList from '@/components/OutageList';
 import StatsDisplay from '@/components/StatsDisplay';
@@ -40,6 +42,8 @@ export default function Dashboard() {
   const minuteNow = useNow(60_000);
   const wakeLock = useWakeLock(settings.keepScreenOn);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  /** The note being edited, or the time a new one starts at. Null while the dialog is closed. */
+  const [editingNote, setEditingNote] = useState<Annotation | { newAt: number } | null>(null);
 
   useDocumentStatus(monitor.status);
 
@@ -47,7 +51,7 @@ export default function Dashboard() {
     registerServiceWorker();
   }, []);
 
-  const { loaded, outages, trackingStartTime, lastCheckAt, monitoredByDay, legacyMonitoredMs } = monitor;
+  const { loaded, outages, annotations, trackingStartTime, lastCheckAt, monitoredByDay, legacyMonitoredMs } = monitor;
   // Never behind the last check, so monitored time can't run ahead of tracked time.
   const now = Math.max(minuteNow, lastCheckAt ?? 0);
   const { stats, days } = useMemo(() => {
@@ -125,7 +129,7 @@ export default function Dashboard() {
 
       {loaded && stats.trackingStartTime && (
         <div className="bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10 p-6 mb-8">
-          <DailyChart days={days} />
+          <DailyChart days={days} annotations={annotations} />
         </div>
       )}
 
@@ -134,9 +138,16 @@ export default function Dashboard() {
           <h2 className="text-xl md:text-2xl font-bold">Outage History</h2>
           <div className="flex gap-3 w-full md:w-auto">
             <button
+              onClick={() => setEditingNote({ newAt: Date.now() })}
+              disabled={!loaded}
+              className="flex-1 md:flex-none whitespace-nowrap px-2 md:px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
+            >
+              Add Note
+            </button>
+            <button
               onClick={() => exportToCSV(outages)}
               disabled={outages.length === 0}
-              className="flex-1 md:flex-none px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
+              className="flex-1 md:flex-none whitespace-nowrap px-2 md:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
             >
               Export CSV
             </button>
@@ -144,7 +155,7 @@ export default function Dashboard() {
               onClick={() => setShowClearConfirm(true)}
               // Also resets uptime and monitored time, so it's useful even with no outages logged.
               disabled={!trackingStartTime}
-              className="flex-1 md:flex-none px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
+              className="flex-1 md:flex-none whitespace-nowrap px-2 md:px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
             >
               Clear Logs
             </button>
@@ -154,9 +165,12 @@ export default function Dashboard() {
         {loaded ? (
           <OutageList
             outages={outages}
+            annotations={annotations}
             now={now}
             onDelete={monitor.deleteOutage}
             onFlag={monitor.setOutageFlagged}
+            onEditNote={setEditingNote}
+            onDeleteNote={monitor.deleteAnnotation}
           />
         ) : (
           <p className="text-center py-12 text-gray-400 dark:text-gray-500">Loading history…</p>
@@ -170,9 +184,26 @@ export default function Dashboard() {
         onConfirm={confirmClearLogs}
         onCancel={() => setShowClearConfirm(false)}
       >
-        This will permanently delete all outage records and start tracking over from now,
-        resetting uptime and monitored time. This action cannot be undone.
+        This will permanently delete all outage records and notes and start tracking over
+        from now, resetting uptime and monitored time. This action cannot be undone.
       </ConfirmDialog>
+
+      {editingNote && (
+        <NoteDialog
+          title={'newAt' in editingNote ? 'Add Note' : 'Edit Note'}
+          initialTime={'newAt' in editingNote ? editingNote.newAt : Date.parse(editingNote.time)}
+          initialText={'newAt' in editingNote ? '' : editingNote.text}
+          onSave={input => {
+            const saved =
+              'newAt' in editingNote
+                ? monitor.addAnnotation(input) !== null
+                : monitor.updateAnnotation(editingNote.id, input);
+            if (saved) setEditingNote(null);
+            return saved;
+          }}
+          onCancel={() => setEditingNote(null)}
+        />
+      )}
     </div>
   );
 }

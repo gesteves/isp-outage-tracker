@@ -1,3 +1,5 @@
+import type { Annotation } from '@/types';
+
 /**
  * Elects one tab to run connectivity checks and lets tabs message each other.
  *
@@ -15,7 +17,10 @@ export type TabMessage<S> =
   | { type: 'clear' }
   | { type: 'checkNow' }
   | { type: 'deleteOutage'; id: string }
-  | { type: 'flagOutage'; id: string; flagged: boolean };
+  | { type: 'flagOutage'; id: string; flagged: boolean }
+  /** Adds the note, or replaces the one with the same id. */
+  | { type: 'saveAnnotation'; annotation: Annotation }
+  | { type: 'deleteAnnotation'; id: string };
 
 export interface LeadershipCallbacks {
   /** This tab is now the leader. */
