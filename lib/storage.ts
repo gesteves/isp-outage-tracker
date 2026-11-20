@@ -1,4 +1,5 @@
-import { Outage, OutageCause, OutageEndReason, OutageFailure } from '@/types';
+import { Annotation, Outage, OutageCause, OutageEndReason, OutageFailure } from '@/types';
+import { MAX_NOTE_LENGTH, sortAnnotations } from '@/lib/annotations';
 import { EMPTY_STREAK, FailureStreak, RECENT_LATENCY_COUNT, normalizeOutages } from '@/lib/monitor';
 
 /**
@@ -29,6 +30,8 @@ export interface TrackerData {
   streak: FailureStreak;
   /** Response times (ms) of the last few successful checks, for the next outage's "before" figure. */
   recentLatencies: number[];
+  /** Notes the user added to the history, oldest first. Missing in data saved before notes existed. */
+  annotations: Annotation[];
 }
 
 export function emptyData(): TrackerData {
@@ -41,6 +44,7 @@ export function emptyData(): TrackerData {
     legacyMonitoredMs: 0,
     streak: EMPTY_STREAK,
     recentLatencies: [],
+    annotations: [],
   };
 }
 
@@ -109,6 +113,35 @@ export function validateOutage(value: unknown): Outage | null {
   return outage;
 }
 
+/**
+ * Returns a clean copy of the note (text trimmed and capped at MAX_NOTE_LENGTH), or
+ * null if it has no usable id, time or text. Also used on notes coming from the UI or
+ * other tabs before they're saved.
+ */
+export function validateAnnotation(value: unknown): Annotation | null {
+  if (!value || typeof value !== 'object') return null;
+  const a = value as Record<string, unknown>;
+  if (typeof a.id !== 'string' || a.id === '' || !isTimestamp(a.time) || typeof a.text !== 'string') {
+    return null;
+  }
+  const text = a.text.trim().slice(0, MAX_NOTE_LENGTH).trim();
+  if (text === '') return null;
+  return { id: a.id, time: new Date(a.time).toISOString(), text };
+}
+
+function validateAnnotations(value: unknown): Annotation[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const annotations: Annotation[] = [];
+  for (const item of value) {
+    const annotation = validateAnnotation(item);
+    if (!annotation || seen.has(annotation.id)) continue;
+    seen.add(annotation.id);
+    annotations.push(annotation);
+  }
+  return sortAnnotations(annotations);
+}
+
 function validateOutages(value: unknown): Outage[] {
   if (!Array.isArray(value)) return [];
   return normalizeOutages(value.map(validateOutage).filter((o): o is Outage => o !== null));
@@ -154,6 +187,7 @@ function fromStored(value: Record<string, unknown>): TrackerData {
     legacyMonitoredMs: isNonNegativeNumber(value.legacyMonitoredMs) ? value.legacyMonitoredMs : 0,
     streak: validateStreak(value.streak),
     recentLatencies: validateLatencies(value.recentLatencies),
+    annotations: validateAnnotations(value.annotations),
   };
 }
 

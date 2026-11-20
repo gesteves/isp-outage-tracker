@@ -48,6 +48,17 @@ export interface Outage {
   latencyAfterMs?: number | null;
 }
 
+/**
+ * A note the user added to the history, e.g. "Switched to the new router". Not an
+ * outage: it's shown alongside them for context, and doesn't affect any stats.
+ */
+export interface Annotation {
+  id: string;
+  /** When the thing being noted happened (ISO timestamp); not necessarily when the note was written. */
+  time: string;
+  text: string;
+}
+
 /** One local day of the daily breakdown. */
 export interface DayStats {
   /** Local date, 'YYYY-MM-DD'. */

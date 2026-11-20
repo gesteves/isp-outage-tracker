@@ -11,6 +11,7 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 - 🏠 **Local vs. ISP outages**: outages while your device had no network at all (Wi-Fi off, cable unplugged) are tagged "Local network" and don't count against your ISP
 - 📅 **Daily chart**: downtime per day for the last 30 days, with days the app wasn't running shown as "not monitored"
 - 📝 **Outage history**: start, end, duration, cause and ISP for every outage; mark a false alarm as "not an outage" or delete it
+- 🗒️ **Notes**: add a note at any date and time (a new router, a plan change) and it shows up in the history among the outages, and on that day in the daily chart; edit or delete it later. Notes don't affect the stats
 - 📥 **CSV export**: local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, durations, time since the previous outage, cause and failure type, how the outage ended, ISP, public IP and ASN before and after, response times before and after, and the detection settings
 - 🔔 **Status notifications**: optional notifications when the internet goes down and when it comes back
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
@@ -184,7 +185,7 @@ NEXT_PUBLIC_FAILURE_THRESHOLD=2
 
 Everything is stored in your browser's localStorage:
 
-- `isp-tracker-data`: outages, tracking start time, monitored time per day, the last check time and any in-progress failure streak. It's versioned; data from earlier versions of the app is migrated automatically the first time it loads.
+- `isp-tracker-data`: outages, notes, tracking start time, monitored time per day, the last check time and any in-progress failure streak. It's versioned; data from earlier versions of the app is migrated automatically the first time it loads.
 - `isp-tracker-settings`: the "keep screen on" and notification toggles, per device.
 - `isp-name-cache`: the detected ISP name, for an hour.
 - `isp-tracker-leader-epoch`: a counter bumped each time a tab takes over checking, so a tab that was replaced while suspended knows not to write.

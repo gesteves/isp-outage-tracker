@@ -1,12 +1,17 @@
 'use client';
 
-import { KeyboardEvent, useRef, useState } from 'react';
-import { DayStats } from '@/types';
-import { formatDurationFromSeconds } from '@/lib/format';
+import { KeyboardEvent, useMemo, useRef, useState } from 'react';
+import { Annotation, DayStats } from '@/types';
+import { formatClockTime, formatDurationFromSeconds } from '@/lib/format';
+import { dayKey } from '@/lib/stats';
 
 interface DailyChartProps {
   days: DayStats[];
+  /** Notes are marked under the day they were noted for, and listed in its readout. */
+  annotations?: Annotation[];
 }
+
+const NO_NOTES: Annotation[] = [];
 
 const TICK_STEPS = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
 
@@ -34,11 +39,16 @@ export const isNotMonitored = (day: DayStats) =>
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function describe(day: DayStats): string {
-  if (isNotMonitored(day)) return `${longDate(day.start)}: not monitored`;
-  const parts = [`${formatDurationFromSeconds(day.ispSeconds)} ISP downtime`];
-  if (day.localSeconds > 0) parts.push(`${formatDurationFromSeconds(day.localSeconds)} local network`);
-  parts.push(plural(day.outages, 'outage'));
+function describe(day: DayStats, notes: number): string {
+  const parts: string[] = [];
+  if (isNotMonitored(day)) {
+    parts.push('not monitored');
+  } else {
+    parts.push(`${formatDurationFromSeconds(day.ispSeconds)} ISP downtime`);
+    if (day.localSeconds > 0) parts.push(`${formatDurationFromSeconds(day.localSeconds)} local network`);
+    parts.push(plural(day.outages, 'outage'));
+  }
+  if (notes > 0) parts.push(plural(notes, 'note'));
   return `${longDate(day.start)}: ${parts.join(', ')}`;
 }
 
@@ -58,10 +68,20 @@ function ReadoutValue({ swatch, value, label }: { swatch: string; value: string;
  * the baseline instead of a bar, so "not monitored" never reads as "no downtime".
  * Tapping, clicking or arrowing to a day pins its numbers in the readout below.
  */
-export default function DailyChart({ days }: DailyChartProps) {
+export default function DailyChart({ days, annotations = NO_NOTES }: DailyChartProps) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
+
+  /** Notes by local day, oldest first within each day. */
+  const notesByDay = useMemo(() => {
+    const byDay = new Map<string, Annotation[]>();
+    for (const note of annotations) {
+      const key = dayKey(Date.parse(note.time));
+      byDay.set(key, [...(byDay.get(key) ?? []), note]);
+    }
+    return byDay;
+  }, [annotations]);
 
   if (days.length === 0) return null;
 
@@ -77,6 +97,9 @@ export default function DailyChart({ days }: DailyChartProps) {
   const { max, ticks } = axisScale(peak);
   const pct = (seconds: number) => (seconds / max) * 100;
   const columns = { gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` };
+  const notesOn = (day: DayStats) => notesByDay.get(day.day) ?? NO_NOTES;
+  const hasNotes = days.some(d => notesOn(d).length > 0);
+  const shownNotes = notesOn(shown);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const current = days.findIndex(d => d.day === activeKey);
@@ -115,6 +138,12 @@ export default function DailyChart({ days }: DailyChartProps) {
             <span aria-hidden="true" className="size-2 rounded-full border-2 border-viz-baseline" />
             Not monitored
           </li>
+          {hasNotes && (
+            <li className="inline-flex items-center gap-1.5">
+              <span aria-hidden="true" className="size-1.5 rotate-45 bg-gray-700 dark:bg-gray-300" />
+              Note
+            </li>
+          )}
         </ul>
       </div>
 
@@ -166,7 +195,7 @@ export default function DailyChart({ days }: DailyChartProps) {
                   type="button"
                   role="radio"
                   aria-checked={isActive}
-                  aria-label={describe(day)}
+                  aria-label={describe(day, notesOn(day).length)}
                   tabIndex={isActive ? 0 : -1}
                   onClick={() => setSelectedDay(day.day)}
                   onPointerEnter={event => {
@@ -210,7 +239,17 @@ export default function DailyChart({ days }: DailyChartProps) {
         </div>
       </div>
 
-      <div className="ml-12 mt-3 grid text-xs text-viz-muted" style={columns} aria-hidden="true">
+      {hasNotes && (
+        <div className="ml-12 mt-2 grid h-1.5" style={columns} aria-hidden="true">
+          {days.map(day => (
+            <span key={day.day} className="flex justify-center">
+              {notesOn(day).length > 0 && <span className="size-1.5 rotate-45 bg-gray-700 dark:bg-gray-300" />}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className={`ml-12 grid text-xs text-viz-muted ${hasNotes ? 'mt-1' : 'mt-3'}`} style={columns} aria-hidden="true">
         {days.map((day, i) => (
           <span key={day.day} className="justify-self-center whitespace-nowrap">
             {(lastIndex - i) % 7 === 0 ? (i === lastIndex ? 'Today' : shortDate(day.start)) : ''}
@@ -247,6 +286,17 @@ export default function DailyChart({ days }: DailyChartProps) {
               monitored {formatDurationFromSeconds(shown.monitoredSeconds)}
             </span>
           </>
+        )}
+        {shownNotes.length > 0 && (
+          <ul className="basis-full space-y-0.5 text-gray-700 dark:text-gray-300">
+            {shownNotes.map(note => (
+              <li key={note.id} className="flex items-baseline gap-2">
+                <span aria-hidden="true" className="inline-block size-1.5 shrink-0 -translate-y-0.5 rotate-45 bg-gray-700 dark:bg-gray-300" />
+                <span className="text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap">{formatClockTime(note.time)}</span>
+                <span className="min-w-0 break-words">{note.text}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

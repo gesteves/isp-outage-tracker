@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { AnnotationInput } from '@/lib/annotations';
 import {
   MonitorDeps,
   MonitorSnapshot,
@@ -13,6 +14,9 @@ export interface UseConnectivityMonitor extends MonitorSnapshot {
   checkNow: () => void;
   deleteOutage: (id: string) => void;
   setOutageFlagged: (id: string, flagged: boolean) => void;
+  addAnnotation: (input: AnnotationInput) => string | null;
+  updateAnnotation: (id: string, input: AnnotationInput) => boolean;
+  deleteAnnotation: (id: string) => void;
 }
 
 export function useConnectivityMonitor(deps?: MonitorDeps): UseConnectivityMonitor {
@@ -53,5 +57,8 @@ export function useConnectivityMonitor(deps?: MonitorDeps): UseConnectivityMonit
     checkNow: monitor.checkNow,
     deleteOutage: monitor.deleteOutage,
     setOutageFlagged: monitor.setOutageFlagged,
+    addAnnotation: monitor.addAnnotation,
+    updateAnnotation: monitor.updateAnnotation,
+    deleteAnnotation: monitor.deleteAnnotation,
   };
 }

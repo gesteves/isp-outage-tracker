@@ -107,4 +107,29 @@ describe('DailyChart', () => {
     render(<DailyChart days={[day(1), day(2)]} />)
     expect(screen.getByText('No downtime in the last 2 days')).toBeInTheDocument()
   })
+
+  describe('notes', () => {
+    const notes = [
+      { id: 'a', time: new Date(2024, 0, 3, 12, 0).toISOString(), text: 'Switched routers' },
+      { id: 'b', time: new Date(2023, 11, 1).toISOString(), text: 'Out of range' },
+    ]
+
+    it('marks days with notes and lists them in the readout', () => {
+      render(<DailyChart days={days} annotations={notes} />)
+      const radios = screen.getAllByRole('radio')
+      expect(radios[2]).toHaveAccessibleName(/2 outages, 1 note$/)
+      expect(radios[3]).not.toHaveAccessibleName(/note/)
+      expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Note')).toBeInTheDocument()
+
+      expect(screen.queryByText('Switched routers')).not.toBeInTheDocument()
+      fireEvent.click(radios[2])
+      expect(within(readout()).getByText('Switched routers')).toBeInTheDocument()
+      expect(screen.queryByText('Out of range')).not.toBeInTheDocument()
+    })
+
+    it('has no note legend without notes in range', () => {
+      render(<DailyChart days={days} annotations={[notes[1]]} />)
+      expect(within(screen.getByRole('list', { name: 'Legend' })).queryByText('Note')).not.toBeInTheDocument()
+    })
+  })
 })

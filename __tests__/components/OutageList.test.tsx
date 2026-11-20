@@ -197,4 +197,57 @@ describe('OutageList', () => {
       expect(screen.queryByRole('button', { name: 'Not an outage' })).not.toBeInTheDocument()
     })
   })
+
+  describe('notes', () => {
+    const outage: Outage = { id: 'o', startTime: '2024-01-02T10:00:00Z', endTime: '2024-01-02T10:05:00Z', duration: 300 }
+    const note = { id: 'n', time: '2024-01-02T12:00:00.000Z', text: 'Switched\nrouters' }
+    const older = { id: 'n0', time: '2024-01-01T12:00:00.000Z', text: 'New modem' }
+
+    it('shows notes among the outages, most recent first', () => {
+      const { container } = render(<OutageList outages={[outage]} annotations={[older, note]} now={NOW} />)
+      const text = container.textContent ?? ''
+      expect(text.indexOf('Switched')).toBeLessThan(text.indexOf('Started'))
+      expect(text.indexOf('Started')).toBeLessThan(text.indexOf('New modem'))
+      expect(screen.getAllByText('Note')).toHaveLength(2)
+    })
+
+    it('puts a note above an outage that started at the same time', () => {
+      const same = { ...note, time: outage.startTime }
+      const { container } = render(<OutageList outages={[outage]} annotations={[same]} now={NOW} />)
+      const text = container.textContent ?? ''
+      expect(text.indexOf('Switched')).toBeLessThan(text.indexOf('Started'))
+    })
+
+    it('shows notes when there are no outages yet', () => {
+      render(<OutageList outages={[]} annotations={[note]} now={NOW} />)
+      expect(screen.queryByText('No outages recorded yet.')).not.toBeInTheDocument()
+      expect(screen.getByText(/Switched/)).toBeInTheDocument()
+    })
+
+    it('edits a note, and deletes one after confirming', () => {
+      const onEditNote = jest.fn()
+      const onDeleteNote = jest.fn()
+      render(<OutageList outages={[]} annotations={[note]} now={NOW} onEditNote={onEditNote} onDeleteNote={onDeleteNote} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      expect(onEditNote).toHaveBeenCalledWith(note)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      expect(onDeleteNote).not.toHaveBeenCalled()
+      const dialog = screen.getByRole('dialog', { name: 'Delete this note?' })
+      fireEvent.click(Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === 'Delete')!)
+      expect(onDeleteNote).toHaveBeenCalledWith('n')
+    })
+
+    it('pages through outages and notes together', () => {
+      const notes = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => ({
+        id: `n${i}`,
+        time: new Date(NOW - (i + 1) * 60_000).toISOString(),
+        text: `note ${i}`,
+      }))
+      render(<OutageList outages={[]} annotations={notes} now={NOW} />)
+      expect(screen.getAllByText('Note')).toHaveLength(PAGE_SIZE)
+      expect(screen.getByRole('button', { name: 'Show 1 more (1 older)' })).toBeInTheDocument()
+    })
+  })
 })
