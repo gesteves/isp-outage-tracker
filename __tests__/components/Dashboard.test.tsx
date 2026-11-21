@@ -63,6 +63,12 @@ describe('Dashboard', () => {
     expect(state.clearHistory).toHaveBeenCalledTimes(1)
   })
 
+  it('lets you export when there are notes but no outages', () => {
+    mockMonitor.mockReturnValue(monitor({ annotations: [{ id: 'note-1', time: '2025-10-12T00:00:00.000Z', text: 'New router' }] }))
+    render(<Dashboard />)
+    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeEnabled()
+  })
+
   it('has nothing to reset before tracking starts', () => {
     mockMonitor.mockReturnValue(monitor({ loaded: false, trackingStartTime: null }))
     render(<Dashboard />)

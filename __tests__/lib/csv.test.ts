@@ -1,6 +1,6 @@
 import { CSV_HEADERS, buildCsv, exportToCSV } from '@/lib/csv'
 import { formatLocalIso } from '@/lib/format'
-import { Outage } from '@/types'
+import { Annotation, Outage } from '@/types'
 
 const rows = (csv: string) => csv.split('\n').map(line => line.slice(1, -1).split('","'))
 
@@ -11,7 +11,7 @@ function records(csv: string): Array<Record<string, string>> {
 }
 
 const TZ = 'America/Denver'
-const recordsOf = (outages: Outage[]) => records(buildCsv(outages, TZ))
+const recordsOf = (outages: Outage[], annotations: Annotation[] = []) => records(buildCsv(outages, annotations, TZ))
 
 describe('buildCsv', () => {
   const completed: Outage = {
@@ -71,6 +71,8 @@ describe('buildCsv', () => {
     expect(row.Cause).toBe('ISP')
     expect(row.ISP).toBe('Comcast')
     expect(row.Flagged).toBe('')
+    expect(row.Type).toBe('Outage')
+    expect(row.Note).toBe('')
   })
 
   it('computes minutes from the rounded seconds, so the two agree', () => {
@@ -172,6 +174,60 @@ describe('buildCsv', () => {
     expect(recordsOf([completed])[0].ISP).toBe('Comcast')
   })
 
+  describe('notes', () => {
+    const note: Annotation = { id: 'note-1', time: '2024-01-01T09:30:00.000Z', text: 'Switched to the new router' }
+
+    it('exports a note as its own row, with its time and text', () => {
+      const [row] = recordsOf([], [note])
+      expect(row.Type).toBe('Note')
+      expect(row['Start (local)']).toBe(formatLocalIso(note.time))
+      expect(row['Start (UTC, ISO 8601)']).toBe(note.time)
+      expect(row['Time zone']).toBe(TZ)
+      expect(row['Day of week']).toBe(new Date(note.time).toLocaleDateString('en-US', { weekday: 'long' }))
+      expect(row.Note).toBe('Switched to the new router')
+    })
+
+    it('leaves the outage columns blank on note rows', () => {
+      const [row] = recordsOf([], [note])
+      const shared = ['Type', 'Start (local)', 'Start (UTC, ISO 8601)', 'Time zone', 'Day of week', 'Note']
+      for (const header of CSV_HEADERS.filter(h => !shared.includes(h))) {
+        expect([header, row[header]]).toEqual([header, ''])
+      }
+      for (const r of rows(buildCsv([completed], [note]))) expect(r).toHaveLength(CSV_HEADERS.length)
+    })
+
+    it('puts notes among the outages, oldest first, with a note at the same time first', () => {
+      const later = { ...completed, id: 'b', startTime: '2024-01-02T10:00:00.000Z', endTime: null, duration: null }
+      const between: Annotation = { id: 'note-2', time: '2024-01-01T12:00:00.000Z', text: 'Called support' }
+      const sameTime: Annotation = { id: 'note-3', time: later.startTime, text: 'Router rebooted' }
+      const all = recordsOf([later, completed], [sameTime, between, note])
+      expect(all.map(r => (r.Type === 'Note' ? r.Note : r['Start (UTC, ISO 8601)']))).toEqual([
+        'Switched to the new router',
+        completed.startTime,
+        'Called support',
+        'Router rebooted',
+        later.startTime,
+      ])
+    })
+
+    it('measures the time since the previous outage, not the previous note', () => {
+      const next = { ...completed, id: 'b', startTime: '2024-01-01T11:01:30.000Z', endTime: null, duration: null }
+      const between: Annotation = { id: 'note-2', time: '2024-01-01T11:01:00.000Z', text: 'Blip' }
+      const [, , second] = recordsOf([completed, next], [between])
+      expect(second.Type).toBe('Outage')
+      expect(second['Since previous outage (seconds)']).toBe('60')
+    })
+
+    it('escapes quotes and keeps notes from being read as formulas', () => {
+      const [row] = recordsOf([], [{ ...note, text: '=1+1 "maybe"' }])
+      expect(row.Note).toBe(`'=1+1 ""maybe""`)
+    })
+
+    it('keeps line breaks inside the quoted cell', () => {
+      expect(buildCsv([], [{ ...note, text: 'Line one\nLine two' }], TZ)).toMatch(/,"Line one\nLine two"$/)
+    })
+  })
+
   it('marks outages flagged as not real', () => {
     const [row] = recordsOf([{ ...completed, flagged: true }])
     expect(row.Flagged).toBe('Not an outage')
@@ -216,7 +272,7 @@ describe('exportToCSV', () => {
       return el
     })
     // Late evening, local time: in the Americas it's already tomorrow in UTC.
-    exportToCSV([], new Date(2024, 0, 1, 23, 30).getTime())
+    exportToCSV([], [], new Date(2024, 0, 1, 23, 30).getTime())
     expect(link?.getAttribute('download')).toBe('isp-outages-2024-01-01.csv')
   })
 

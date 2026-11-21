@@ -12,7 +12,7 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 - 📅 **Daily chart**: downtime per day for the last 30 days, with days the app wasn't running shown as "not monitored"
 - 📝 **Outage history**: start, end, duration, cause and ISP for every outage; mark a false alarm as "not an outage" or delete it
 - 🗒️ **Notes**: add a note at any date and time (a new router, a plan change) and it shows up in the history among the outages, and on that day in the daily chart; edit or delete it later. Notes don't affect the stats
-- 📥 **CSV export**: local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, durations, time since the previous outage, cause and failure type, how the outage ended, ISP, public IP and ASN before and after, response times before and after, and the detection settings
+- 📥 **CSV export**: local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, durations, time since the previous outage, cause and failure type, how the outage ended, ISP, public IP and ASN before and after, response times before and after, and the detection settings. Notes are included as their own rows (Type `Note`), in time order among the outages, with the text in the Note column
 - 🔔 **Status notifications**: optional notifications when the internet goes down and when it comes back
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
 - 📴 **Works offline**: installable, and still loads if you reload it during an outage
