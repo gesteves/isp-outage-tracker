@@ -1,7 +1,7 @@
 import { CheckOutcome } from '@/lib/connectivity'
 import { NetworkInfo } from '@/lib/isp-detection'
-import { MonitorDeps, MonitorSnapshot, createConnectivityMonitor } from '@/lib/connectivity-monitor'
-import { FAST_RETRY_MS, gapThresholdMs } from '@/lib/monitor'
+import { AFTER_LOOKUP_DELAYS_MS, MonitorDeps, MonitorSnapshot, createConnectivityMonitor } from '@/lib/connectivity-monitor'
+import { FAST_RETRY_MS, RECOVERY_WATCH_MS, gapThresholdMs } from '@/lib/monitor'
 import { LEGACY_KEYS, emptyData, loadData, readEpoch, saveData } from '@/lib/storage'
 import { LeadershipCallbacks, TabCoordinator, TabMessage, soloCoordinator } from '@/lib/tab-coordinator'
 import { Outage } from '@/types'
@@ -10,7 +10,12 @@ const INTERVAL = 60_000
 const T0 = Date.parse('2024-01-01T12:00:00Z')
 const iso = (ms: number) => new Date(ms).toISOString()
 const stored = () => loadData().data
-const network = (name: string, ip: string | null = null, asn: string | null = null): NetworkInfo => ({ name, ip, asn })
+const network = (name: string, ipv4: string | null = null, asn: string | null = null, ipv6: string | null = null): NetworkInfo => ({
+  name,
+  ipv4,
+  ipv6,
+  asn,
+})
 
 /** Tests mostly only care whether a check passed: a bare boolean stands for that. */
 type Result = boolean | CheckOutcome
@@ -176,6 +181,59 @@ describe('createConnectivityMonitor', () => {
     expect(stored().outages[0].duration).toBe(2 * FAST_RETRY_MS / 1000)
   })
 
+  it('counts the time to the next check from when a check started, not when it gave up', async () => {
+    const { check, resolve } = deferredCheck()
+    const { monitor } = setup(check)
+    monitor.start()
+    await flush()
+    // The check takes 5 seconds, e.g. waiting out a timeout.
+    await jest.advanceTimersByTimeAsync(5000)
+    resolve(true)
+    await flush()
+    expect(monitor.getSnapshot().nextCheckAt).toBe(T0 + INTERVAL)
+  })
+
+  it('keeps checking quickly for a few minutes after an outage ends, then slows down', async () => {
+    let checks = 0
+    // Two failures (an outage), then up for good.
+    const { monitor } = setup(async () => ++checks > 2)
+    monitor.start()
+    await flush() // fail
+    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS) // fail: outage
+    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS) // recovered
+    const recoveredAt = T0 + 2 * FAST_RETRY_MS
+    expect(monitor.getSnapshot().nextCheckAt).toBe(recoveredAt + FAST_RETRY_MS)
+    await jest.advanceTimersByTimeAsync(RECOVERY_WATCH_MS)
+    expect(monitor.getSnapshot().nextCheckAt).toBe(recoveredAt + RECOVERY_WATCH_MS + INTERVAL)
+  })
+
+  it('records the settled response time on the outage that just ended', async () => {
+    const results: Result[] = [
+      { online: false, failure: 'all', latencyMs: null },
+      { online: false, failure: 'all', latencyMs: null },
+      { online: true, latencyMs: 4200 },
+      { online: true, latencyMs: 60 },
+      { online: true, latencyMs: 40 },
+      { online: true, latencyMs: 50 },
+    ]
+    const { monitor } = setup(results)
+    monitor.start()
+    await flush()
+    await jest.advanceTimersByTimeAsync(2 * FAST_RETRY_MS)
+    expect(stored().outages[0]).toMatchObject({ latencyAfterMs: 4200 })
+    expect(stored().outages[0]).not.toHaveProperty('latencySettledMs')
+    await jest.advanceTimersByTimeAsync(3 * FAST_RETRY_MS)
+    expect(stored().outages[0].latencySettledMs).toBe(50)
+  })
+
+  it('records monitored time per hour too', async () => {
+    const { monitor } = setup([true, true])
+    monitor.start()
+    await flush()
+    await jest.advanceTimersByTimeAsync(INTERVAL)
+    expect(Object.values(stored().monitoredByHour)).toEqual([INTERVAL])
+  })
+
   it('runs a single check when started, stopped and restarted (StrictMode)', async () => {
     const { monitor, check } = setup([true])
     monitor.start()()
@@ -217,8 +275,10 @@ describe('createConnectivityMonitor', () => {
         endTime: null,
         duration: null,
         cause: 'isp',
+        lastGoodCheckAt: null,
         isp: null,
-        ip: null,
+        ipv4: null,
+        ipv6: null,
         asn: null,
         checkIntervalSeconds: 60,
         failureThreshold: 2,
@@ -377,17 +437,42 @@ describe('createConnectivityMonitor', () => {
       monitor.start()
       await flush()
       await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
-      expect(stored().outages[0]).toMatchObject({ isp: 'Comcast', ip: '203.0.113.7', asn: 'AS7922' })
-      expect(stored().outages[0]).not.toHaveProperty('ipAfter')
+      expect(stored().outages[0]).toMatchObject({ isp: 'Comcast', ipv4: '203.0.113.7', ipv6: null, asn: 'AS7922' })
+      expect(stored().outages[0]).not.toHaveProperty('ipv4After')
 
       await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
       expect(stored().outages[0]).toMatchObject({
         endReason: 'restored',
         ispAfter: 'Backup LTE',
-        ipAfter: '198.51.100.2',
+        ipv4After: '198.51.100.2',
+        ipv6After: null,
         asnAfter: 'AS21928',
       })
-      expect(monitor.getSnapshot().outages[0].ipAfter).toBe('198.51.100.2')
+      expect(monitor.getSnapshot().outages[0].ipv4After).toBe('198.51.100.2')
+    })
+
+    it('tries the lookup after an outage again if it finds nothing at first', async () => {
+      let forced = 0
+      const detectIsp = jest.fn(async ({ force }: { force: boolean }) => {
+        if (!force) return network('Comcast', '203.0.113.7')
+        forced += 1
+        return forced < 3 ? null : network('Comcast', '203.0.113.9')
+      })
+      const { monitor } = setup([false, false, true], { detectIsp })
+      monitor.start()
+      await flush()
+      await jest.advanceTimersByTimeAsync(2 * FAST_RETRY_MS) // recovered: first try fails
+      expect(forced).toBe(1)
+      await jest.advanceTimersByTimeAsync(AFTER_LOOKUP_DELAYS_MS[1])
+      expect(forced).toBe(2)
+      expect(stored().outages[0]).not.toHaveProperty('ipv4After')
+      await jest.advanceTimersByTimeAsync(AFTER_LOOKUP_DELAYS_MS[2] - AFTER_LOOKUP_DELAYS_MS[1])
+      expect(forced).toBe(3)
+      expect(stored().outages[0].ipv4After).toBe('203.0.113.9')
+
+      // Found: no more tries.
+      await jest.advanceTimersByTimeAsync(5 * 60_000)
+      expect(forced).toBe(3)
     })
 
     it('leaves the network after blank when it cannot be detected', async () => {

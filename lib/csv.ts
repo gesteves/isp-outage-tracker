@@ -2,6 +2,8 @@ import { Annotation, Outage, OutageEndReason, OutageFailure } from '@/types';
 import { sortAnnotations } from '@/lib/annotations';
 import { downloadFile } from '@/lib/download';
 import { formatLocalIso } from '@/lib/format';
+import { groupIncidents, incidentNumbers } from '@/lib/incidents';
+import { ipFamily } from '@/lib/isp-detection';
 import { dayKey } from '@/lib/stats';
 
 export const CSV_HEADERS = [
@@ -12,20 +14,25 @@ export const CSV_HEADERS = [
   'End (UTC, ISO 8601)',
   'Time zone',
   'Day of week',
+  'Last good check before (UTC, ISO 8601)',
   'Duration (seconds)',
   'Duration (minutes)',
   'Since previous outage (seconds)',
+  'Incident',
   'Cause',
   'Failure type',
   'Ended by',
   'ISP',
   'ISP after',
-  'Public IP before',
-  'Public IP after',
+  'Public IPv4 before',
+  'Public IPv4 after',
+  'Public IPv6 before',
+  'Public IPv6 after',
   'ASN before',
   'ASN after',
   'Response time before (ms)',
   'Response time after (ms)',
+  'Response time after, settled (ms)',
   'Check interval (seconds)',
   'Failure threshold',
   'Flagged',
@@ -76,7 +83,16 @@ function timeCells(startMs: number, endMs: number | null, ongoing: boolean, time
   ];
 }
 
-function outageRow(outage: Outage, previous: Outage | null, timeZone: string): string[] {
+/**
+ * The address of one family. Records from before IPv4 and IPv6 were looked up
+ * separately have a single address of either family; it goes in its family's column.
+ */
+function address(current: string | null | undefined, legacy: string | null | undefined, family: 'v4' | 'v6'): string {
+  if (current !== undefined) return text(current);
+  return ipFamily(legacy) === family ? text(legacy) : '';
+}
+
+function outageRow(outage: Outage, previous: Outage | null, incident: number | undefined, timeZone: string): string[] {
   const startMs = Date.parse(outage.startTime);
   const endMs = outage.endTime ? Date.parse(outage.endTime) : null;
   // Minutes come from the rounded seconds, so the two columns agree.
@@ -85,20 +101,25 @@ function outageRow(outage: Outage, previous: Outage | null, timeZone: string): s
   return [
     'Outage',
     ...timeCells(startMs, endMs, endMs === null, timeZone),
+    text(outage.lastGoodCheckAt),
     number(seconds),
     seconds !== null ? (seconds / 60).toFixed(2) : '',
     previousEnd ? String(Math.round((startMs - Date.parse(previousEnd)) / 1000)) : '',
+    number(incident),
     outage.cause === 'local' ? 'Local network' : 'ISP',
     outage.failure ? FAILURE_LABELS[outage.failure] : '',
     outage.endReason ? END_LABELS[outage.endReason] : '',
     text(outage.isp),
     text(outage.ispAfter),
-    text(outage.ip),
-    text(outage.ipAfter),
+    address(outage.ipv4, outage.ip, 'v4'),
+    address(outage.ipv4After, outage.ipAfter, 'v4'),
+    address(outage.ipv6, outage.ip, 'v6'),
+    address(outage.ipv6After, outage.ipAfter, 'v6'),
     text(outage.asn),
     text(outage.asnAfter),
     number(outage.latencyBeforeMs),
     number(outage.latencyAfterMs),
+    number(outage.latencySettledMs),
     number(outage.checkIntervalSeconds),
     number(outage.failureThreshold),
     outage.flagged ? 'Not an outage' : '',
@@ -117,7 +138,8 @@ function noteRow(note: Annotation, timeZone: string): string[] {
  * Builds the CSV text: outages and notes in one list, oldest first, told apart by the
  * Type column. A note at the same time as an outage's start comes before it, since it's
  * usually the cause. Ongoing outages have blank end and duration cells, and fields that
- * older records didn't track are blank too.
+ * older records didn't track are blank too. ISP outages carry the number of the incident
+ * they belong to (see lib/incidents.ts).
  */
 export function buildCsv(
   outages: Outage[],
@@ -126,6 +148,8 @@ export function buildCsv(
 ): string {
   const sortedOutages = [...outages].sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
   const sortedNotes = sortAnnotations(annotations);
+  // Numbering only depends on where outages start and end, so an ongoing one's edge doesn't matter.
+  const incidents = incidentNumbers(groupIncidents(outages));
 
   const rows: string[][] = [];
   let o = 0;
@@ -138,7 +162,7 @@ export function buildCsv(
       n++;
     } else {
       // "Since previous outage" skips over notes: it's measured from the outage before.
-      rows.push(outageRow(outage, o > 0 ? sortedOutages[o - 1] : null, timeZone));
+      rows.push(outageRow(outage, o > 0 ? sortedOutages[o - 1] : null, incidents.get(outage.id), timeZone));
       o++;
     }
   }

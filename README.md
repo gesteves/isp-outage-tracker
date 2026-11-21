@@ -6,14 +6,14 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 
 ## Features
 
-- 📊 **Monitoring**: checks connectivity every minute, and every 10 seconds while something looks wrong
+- 📊 **Monitoring**: checks connectivity every minute, and every 10 seconds while something looks wrong or the connection has just come back
 - 📈 **Honest uptime**: uptime is computed over the time the app was actually watching, not since you first opened it, with today, the last 7 days and the last 30 days next to the all-time figure
 - 🏠 **Local vs. ISP outages**: outages while your device had no network at all (Wi-Fi off, cable unplugged) are tagged "Local network" and don't count against your ISP
 - 📅 **Daily chart**: downtime per day for the last 30 days, with days the app wasn't running shown as "not monitored"
 - 📝 **Outage history**: start, end, duration, cause and ISP for every outage; mark a false alarm as "not an outage" or delete it
 - 🗒️ **Notes**: add a note at any date and time (a new router, a plan change) and it shows up in the history among the outages, and on that day in the daily chart; edit or delete it later. Notes don't affect the stats
-- 📥 **CSV export** (under **Export**): local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, durations, time since the previous outage, cause and failure type, how the outage ended, ISP, public IP and ASN before and after, response times before and after, and the detection settings. Notes are included as their own rows (Type `Note`), in time order among the outages, with the text in the Note column
-- 🤖 **Markdown export**: a file to hand to an AI assistant for a report. It explains what each field means (e.g. that an outage ended by "Monitoring stopped" may have lasted longer), and includes the app's uptime figures for all time, the last 30 and 7 days and today, how many hours were monitored each day (so a day the app wasn't running isn't mistaken for a day without outages), and the same outage and note rows as the CSV
+- 📥 **CSV export** (under **Export**): local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, the last good check before each outage, durations, time since the previous outage, the incident it belongs to, cause and failure type, how the outage ended, ISP, public IPv4 and IPv6 and ASN before and after, response times before, right after and once settled, and the detection settings. Notes are included as their own rows (Type `Note`), in time order among the outages, with the text in the Note column
+- 🤖 **Markdown export**: a file to hand to an AI assistant for a report. It explains what each field means (e.g. that an outage ended by "Monitoring stopped" may have lasted longer, and how precise start and end times are), and includes the app's uptime figures for all time, the last 30 and 7 days and today, how many hours were monitored each day (so a day the app wasn't running isn't mistaken for a day without outages), incidents, how long outages lasted, downtime by hour of the day against the time monitored then, a before-and-after comparison around each note (did the new router help?), and the same outage and note rows as the CSV
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
 - 📴 **Works offline**: installable, and still loads if you reload it during an outage
 - 🗂️ **Multi-tab safe**: with several tabs open, only one runs checks; the others mirror it, and take over if it stops responding
@@ -25,9 +25,12 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 
 - Each check sends requests to cloudflare.com and google.com, which need DNS, and to 1.1.1.1 and 8.8.8.8, which don't. The check fails if **neither** of the named sites answers, since then websites won't load.
 - When a check fails, the IP addresses tell what kind of failure it was: if one of them still answered, it's a **DNS only** failure; if nothing answered, everything failed. An outage that had both kinds is tagged **Partly DNS** (`Mixed` in the CSV).
-- Each outage records the response time of the last few successful checks before it and of the check that saw the connection come back, plus the ISP, public IP and ASN before and right after it. A new IP or ISP after an outage points to a modem restart, a reassigned address or a failover link.
-- An outage is logged after consecutive failed checks (default: 2), and its start time is backdated to the **first** failed check.
-- After a failed check, the next one runs in 10 seconds instead of a full interval. Outages are confirmed in about 10 seconds, and recoveries are noticed just as quickly.
+- Each outage records the response time of the last few successful checks before it and of the check that saw the connection come back, plus the ISP, public IPv4 and IPv6 addresses and ASN before and right after it. A new IP or ISP after an outage points to a modem restart, a reassigned address or a failover link.
+- An outage is logged after consecutive failed checks (default: 2), and its start time is backdated to the **first** failed check. It also records the last good check before it: the outage began somewhere in between, so the start is only as precise as the check interval.
+- After a failed check, the next one runs 10 seconds after the failed one started, instead of a full interval. Outages are confirmed in about 10 seconds, and recoveries are noticed just as quickly.
+- Checks stay at 10 seconds for 3 minutes after an outage ends, because a connection that just came back often drops again. At the full interval, those drops would be timed up to a minute late.
+- ISP outages less than 10 minutes apart are grouped into **incidents** in the exports: a flapping connection logs several outages, but it's one problem.
+- The response time right after an outage includes setting up new connections, so it runs high. Each outage also gets a **settled** response time: the median of the 3 successful checks after that one, which is the figure to compare with the one before.
 - The app also checks when the browser reports the network changing: right away when it goes offline, and 2 seconds after it comes back, so a request sent while Wi-Fi is still reconnecting doesn't fail and count a local outage against your ISP. It also checks when you come back to the tab after its timers were slowed down, and whenever you tap **Check now**.
 - Until the first check completes, the dashboard shows "Checking your connection…" instead of guessing.
 
@@ -159,7 +162,7 @@ All configuration is optional. The app works out of the box with sensible defaul
 
 ### ISP Name
 
-The app detects your ISP name using IP geolocation (ipapi.co) and shows it on the dashboard. It's looked up again at most once an hour while the connection is up, and right after every outage in case the connection came back through a different ISP (e.g. a backup link). Each outage records the ISP that was active before it started.
+The app detects your ISP name and ASN using IP geolocation (ipapi.co) and shows the name on the dashboard. It looks up your public IPv4 and IPv6 addresses separately (api.ipify.org and api6.ipify.org): a single lookup returns whichever one the browser happened to use, and a switch between them would look like a new address. Everything is looked up again at most once an hour while the connection is up, and right after every outage in case the connection came back through a different ISP (e.g. a backup link), trying again after 20 seconds and a minute if that fails. Each outage records the ISP that was active before it started.
 
 ### Check Interval
 
@@ -179,9 +182,9 @@ NEXT_PUBLIC_FAILURE_THRESHOLD=2
 
 Everything is stored in your browser's localStorage:
 
-- `isp-tracker-data`: outages, notes, tracking start time, monitored time per day, the last check time and any in-progress failure streak. It's versioned; data from earlier versions of the app is migrated automatically the first time it loads.
+- `isp-tracker-data`: outages, notes, tracking start time, monitored time per day and per hour (the last 400 days of it), the last check time and any in-progress failure streak. It's versioned; data from earlier versions of the app is migrated automatically the first time it loads.
 - `isp-tracker-settings`: the "keep screen on" toggle, per device.
-- `isp-name-cache`: the detected ISP name, for an hour.
+- `isp-name-cache`: the detected ISP name, public IPs and ASN, for an hour.
 - `isp-tracker-leader-epoch`: a counter bumped each time a tab takes over checking, so a tab that was replaced while suspended knows not to write.
 
 **Note**: Data is browser-specific. If you open the app in a different browser or device, you won't see the same history.

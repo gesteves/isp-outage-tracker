@@ -13,7 +13,7 @@ import {
   saveData,
   validateAnnotation,
 } from '@/lib/storage';
-import { accrueMonitoredTime } from '@/lib/stats';
+import { accrueMonitoredHours, accrueMonitoredTime } from '@/lib/stats';
 import { Leadership, TabCoordinator, TabMessage, createTabCoordinator } from '@/lib/tab-coordinator';
 import {
   ConnectionStatus,
@@ -36,6 +36,15 @@ export type MonitorRole = 'leader' | 'follower';
  * ISP one.
  */
 export const RECONNECT_SETTLE_MS = 2000;
+
+/**
+ * When to look up the network after an outage, counted from the recovery, until a
+ * lookup succeeds. Right after the connection comes back, the first try often fails.
+ */
+export const AFTER_LOOKUP_DELAYS_MS = [0, 20_000, 60_000];
+
+/** Shortest wait between checks, even when a check took longer than the delay before the next. */
+const MIN_CHECK_DELAY_MS = 1000;
 
 export interface MonitorSnapshot {
   /** False until state has been loaded from localStorage on the client. */
@@ -156,7 +165,9 @@ export function createConnectivityMonitor({
   let timer: ReturnType<typeof setTimeout> | null = null;
   let nextCheckAt: number | null = null;
   let network: NetworkInfo | null = null;
-  let ispRequest: Promise<void> | null = null;
+  let ispRequest: Promise<boolean> | null = null;
+  /** Timers for retried lookups of the network after an outage. */
+  const afterLookupTimers = new Set<ReturnType<typeof setTimeout>>();
   let stopFollowing: (() => void) | null = null;
   let leadership: Leadership | null = null;
 
@@ -220,31 +231,67 @@ export function createConnectivityMonitor({
   }
 
   /**
-   * Looks up the ISP, public IP and ASN. `afterOutageIds` are outages that just ended:
-   * what's found is recorded on them as the network after the outage.
+   * Looks up the ISP, public IPs and ASN. `afterOutageIds` are outages that just ended:
+   * what's found is recorded on them as the network after the outage. Resolves to
+   * whether anything was found.
    */
-  async function refreshIsp(force: boolean, afterOutageIds: string[] = []) {
+  async function refreshIsp(force: boolean, afterOutageIds: string[] = []): Promise<boolean> {
     // A refresh is already on its way; only a forced one is worth a second request.
-    if (ispRequest && !force) return;
+    if (ispRequest && !force) return false;
     const request = (async () => {
       try {
         const info = await detectIsp({ force });
-        if (!info) return;
+        if (!info) return false;
         const changed =
-          info.name !== network?.name || info.ip !== network?.ip || info.asn !== network?.asn;
+          info.name !== network?.name ||
+          info.ipv4 !== network?.ipv4 ||
+          info.ipv6 !== network?.ipv6 ||
+          info.asn !== network?.asn;
         network = info;
         if (afterOutageIds.length > 0 && canWrite()) {
-          const after = { ispAfter: info.name, ipAfter: info.ip, asnAfter: info.asn };
+          const after = { ispAfter: info.name, ipv4After: info.ipv4, ipv6After: info.ipv6, asnAfter: info.asn };
           for (const id of afterOutageIds) editOutage(id, outage => ({ ...outage, ...after }));
         }
         if (changed) emit();
+        return true;
       } catch (error) {
         console.debug('ISP detection failed:', error);
+        return false;
       }
     })();
     ispRequest = request;
-    await request;
+    const found = await request;
     if (ispRequest === request) ispRequest = null;
+    return found;
+  }
+
+  /**
+   * Looks up the network after outages that just ended, trying again a few times
+   * (AFTER_LOOKUP_DELAYS_MS) if nothing is found. Stops if this tab stops leading.
+   */
+  async function lookUpNetworkAfter(outageIds: string[]) {
+    const startedGeneration = generation;
+    let waited = 0;
+    for (const delay of AFTER_LOOKUP_DELAYS_MS) {
+      if (delay > waited) {
+        await new Promise<void>(resolve => {
+          const id = setTimeout(() => {
+            afterLookupTimers.delete(id);
+            resolve();
+          }, delay - waited);
+          afterLookupTimers.add(id);
+        });
+        waited = delay;
+      }
+      if (!running || role !== 'leader' || generation !== startedGeneration) return;
+      if (await refreshIsp(true, outageIds)) return;
+    }
+  }
+
+  /** Cancels retried lookups; their loops find the generation changed and stop. */
+  function cancelAfterLookups() {
+    afterLookupTimers.forEach(id => clearTimeout(id));
+    afterLookupTimers.clear();
   }
 
   function schedule(delayMs: number) {
@@ -302,6 +349,7 @@ export function createConnectivityMonitor({
     epoch = null;
     remote = null;
     cancelTimer();
+    cancelAfterLookups();
     if (running) {
       startWatchdog();
       coordinator?.post({ type: 'hello' });
@@ -333,21 +381,29 @@ export function createConnectivityMonitor({
         intervalMs,
         newId,
         isp: network?.name ?? null,
-        ip: network?.ip ?? null,
+        ipv4: network?.ipv4 ?? null,
+        ipv6: network?.ipv6 ?? null,
         asn: network?.asn ?? null,
       },
     );
     state = result.state;
 
-    let { outages, monitoredByDay } = data;
+    let { outages, monitoredByDay, monitoredByHour } = data;
     for (const event of result.events) outages = upsertOutage(outages, event.outage);
+    // Merged into what's stored, which may have changed since the outage ended (e.g.
+    // the network after it was recorded, or the user flagged it).
+    for (const { id, patch } of result.amendments) {
+      outages = outages.map(o => (o.id === id && o.endTime !== null ? { ...o, ...patch } : o));
+    }
     if (previousCheck !== null && !isGap(previousCheck, at, intervalMs)) {
       monitoredByDay = accrueMonitoredTime(monitoredByDay, previousCheck, at);
+      monitoredByHour = accrueMonitoredHours(monitoredByHour, previousCheck, at);
     }
     data = {
       ...data,
       outages,
       monitoredByDay,
+      monitoredByHour,
       lastCheckAt: at,
       streak: state.streak,
       recentLatencies: state.recentLatencies,
@@ -366,7 +422,7 @@ export function createConnectivityMonitor({
     // An outage closed by a gap isn't included: "after" would be hours later. Otherwise
     // this only fetches once the hour-long cache expires, which keeps a long-running
     // dashboard's ISP name current.
-    if (ended) void refreshIsp(true, restoredIds);
+    if (ended) void lookUpNetworkAfter(restoredIds);
     else if (online) void refreshIsp(false);
   }
 
@@ -396,7 +452,11 @@ export function createConnectivityMonitor({
     }
 
     if (running && role === 'leader') {
-      const delay = stale ? 0 : Math.min(nextCheckDelay(state, intervalMs), queuedDelay ?? Infinity);
+      // Counted from when this check started, so a check that waited out its timeout
+      // doesn't stretch the time between checks.
+      const elapsed = now() - at;
+      const regular = Math.max(MIN_CHECK_DELAY_MS, nextCheckDelay(state, intervalMs) - elapsed);
+      const delay = stale ? 0 : Math.min(regular, queuedDelay ?? Infinity);
       queuedDelay = null;
       schedule(delay);
     } else {
@@ -454,6 +514,7 @@ export function createConnectivityMonitor({
     leadership = null;
     stopWatchdog();
     cancelTimer();
+    cancelAfterLookups();
     queuedDelay = null;
     if (role === 'leader') {
       role = 'follower';
@@ -492,6 +553,7 @@ export function createConnectivityMonitor({
       return;
     }
     generation += 1;
+    cancelAfterLookups();
     clearData();
     data = { ...emptyData(), trackingStartTime: new Date(now()).toISOString() };
     save();

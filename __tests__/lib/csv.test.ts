@@ -29,13 +29,17 @@ describe('buildCsv', () => {
     checkIntervalSeconds: 60,
     failureThreshold: 2,
     failure: 'dns',
-    ip: '203.0.113.7',
+    lastGoodCheckAt: '2024-01-01T09:59:12.000Z',
+    ipv4: '203.0.113.7',
+    ipv6: '2001:db8::7',
     asn: 'AS7922',
     ispAfter: 'Backup LTE',
-    ipAfter: '198.51.100.2',
+    ipv4After: '198.51.100.2',
+    ipv6After: null,
     asnAfter: 'AS21928',
     latencyBeforeMs: 42,
-    latencyAfterMs: 87,
+    latencyAfterMs: 870,
+    latencySettledMs: 51,
   }
 
   it('starts with the headers', () => {
@@ -95,15 +99,49 @@ describe('buildCsv', () => {
       'Ended by': 'Connection restored',
       ISP: 'Comcast',
       'ISP after': 'Backup LTE',
-      'Public IP before': '203.0.113.7',
-      'Public IP after': '198.51.100.2',
+      'Last good check before (UTC, ISO 8601)': '2024-01-01T09:59:12.000Z',
+      'Public IPv4 before': '203.0.113.7',
+      'Public IPv4 after': '198.51.100.2',
+      'Public IPv6 before': '2001:db8::7',
+      'Public IPv6 after': '',
       'ASN before': 'AS7922',
       'ASN after': 'AS21928',
       'Response time before (ms)': '42',
-      'Response time after (ms)': '87',
+      'Response time after (ms)': '870',
+      'Response time after, settled (ms)': '51',
       'Check interval (seconds)': '60',
       'Failure threshold': '2',
     })
+  })
+
+  it('puts the single address of older records in its family\'s column', () => {
+    const [v4, v6] = recordsOf([
+      { ...completed, id: '1', ip: '203.0.113.7', ipAfter: '2001:db8::1' },
+      { ...completed, id: '2', startTime: '2024-01-02T10:00:00.000Z', ip: '2001:db8::2', ipAfter: null },
+    ])
+    expect(v4).toMatchObject({
+      'Public IPv4 before': '203.0.113.7',
+      'Public IPv6 before': '',
+      'Public IPv4 after': '',
+      'Public IPv6 after': '2001:db8::1',
+    })
+    expect(v6).toMatchObject({ 'Public IPv4 before': '', 'Public IPv6 before': '2001:db8::2' })
+  })
+
+  it('numbers incidents: ISP outages less than 10 minutes apart', () => {
+    const minute = 60_000
+    const make = (id: string, startMin: number, lengthMin: number, extra: Partial<Outage> = {}): Outage => {
+      const start = Date.parse('2024-01-01T10:00:00.000Z') + startMin * minute
+      return { id, startTime: new Date(start).toISOString(), endTime: new Date(start + lengthMin * minute).toISOString(), duration: lengthMin * 60, cause: 'isp', ...extra }
+    }
+    const result = recordsOf([
+      make('a', 0, 2),
+      make('b', 5, 1), // 3 minutes after a
+      make('local', 8, 1, { cause: 'local' }),
+      make('flagged', 9, 1, { flagged: true }),
+      make('c', 30, 1), // 24 minutes after b
+    ])
+    expect(result.map(row => row.Incident)).toEqual(['1', '1', '', '', '2'])
   })
 
   it('labels every failure type and end reason', () => {
@@ -123,12 +161,16 @@ describe('buildCsv', () => {
       'Failure type',
       'Ended by',
       'ISP after',
-      'Public IP before',
-      'Public IP after',
+      'Last good check before (UTC, ISO 8601)',
+      'Public IPv4 before',
+      'Public IPv4 after',
+      'Public IPv6 before',
+      'Public IPv6 after',
       'ASN before',
       'ASN after',
       'Response time before (ms)',
       'Response time after (ms)',
+      'Response time after, settled (ms)',
       'Check interval (seconds)',
       'Failure threshold',
     ]) {

@@ -17,6 +17,14 @@ export interface FailureStreak {
   local: boolean;
   /** How the streak's checks failed, once one has reported it. */
   failure?: OutageFailure;
+  /** When the successful check just before the streak ran (epoch ms), if there was one. */
+  lastSuccessAt?: number;
+}
+
+/** Response times being collected for an outage that just ended, for its settled figure. */
+export interface Settling {
+  outageId: string;
+  samples: number[];
 }
 
 export interface MonitorState {
@@ -27,6 +35,10 @@ export interface MonitorState {
   currentOutage: Outage | null;
   /** Response times (ms) of the last few successful checks, oldest first. */
   recentLatencies: number[];
+  /** When the last outage ended with the connection restored (epoch ms). Fast checks continue for a while after it. */
+  recoveredAt: number | null;
+  /** The outage that just ended, while the checks after it are timed for its settled response time. */
+  settling: Settling | null;
 }
 
 export interface MonitorEvent {
@@ -38,6 +50,12 @@ export interface MonitorEvent {
    * connection was seen coming back. Nothing was observed, so nothing to announce.
    */
   gap?: boolean;
+}
+
+/** A change to an outage that has already ended, to merge into the stored record. */
+export interface OutageAmendment {
+  id: string;
+  patch: Partial<Outage>;
 }
 
 export interface CheckResult {
@@ -56,9 +74,10 @@ export interface MonitorOptions {
   threshold: number;
   intervalMs: number;
   newId: () => string;
-  /** ISP name, public IP and ASN to record on outages that start during this check. */
+  /** ISP name, public IPv4 and IPv6 addresses and ASN to record on outages that start during this check. */
   isp?: string | null;
-  ip?: string | null;
+  ipv4?: string | null;
+  ipv6?: string | null;
   asn?: string | null;
 }
 
@@ -74,6 +93,15 @@ export const FAST_RETRY_MS = 10_000;
 
 /** How many successful checks' response times to keep, for an outage's "before" figure. */
 export const RECENT_LATENCY_COUNT = 5;
+
+/**
+ * How long checks stay fast after an outage ends. A connection that just came back
+ * often drops again, and at the full interval those drops would be timed a minute late.
+ */
+export const RECOVERY_WATCH_MS = 3 * 60_000;
+
+/** Successful checks after the one that saw the connection come back, for an outage's settled response time. */
+export const SETTLED_SAMPLE_COUNT = 3;
 
 export const EMPTY_STREAK: FailureStreak = Object.freeze({
   consecutiveFailures: 0,
@@ -102,13 +130,22 @@ export function initialMonitorState(
     lastCheckAt,
     currentOutage: ongoingOutage,
     recentLatencies,
+    recoveredAt: null,
+    settling: null,
   };
 }
 
-/** Delay before the next check: short while the connection is in doubt, the full interval otherwise. */
+/**
+ * Delay between the start of one check and the next: short while the connection is
+ * in doubt or just came back, the full interval otherwise.
+ */
 export function nextCheckDelay(state: MonitorState, intervalMs: number): number {
   const inDoubt = state.streak.consecutiveFailures > 0 || state.currentOutage !== null;
-  return inDoubt ? Math.min(FAST_RETRY_MS, intervalMs) : intervalMs;
+  const recovering =
+    state.recoveredAt !== null &&
+    state.lastCheckAt !== null &&
+    state.lastCheckAt - state.recoveredAt < RECOVERY_WATCH_MS;
+  return inDoubt || recovering ? Math.min(FAST_RETRY_MS, intervalMs) : intervalMs;
 }
 
 function endOutage(
@@ -155,13 +192,19 @@ function median(values: number[]): number | null {
  * - If more than `gapThresholdMs` passed since the previous check (sleep, closed
  *   tab, suspended iPad), only what was observed is recorded. An open outage is
  *   closed at the last check that saw it down, and the failure streak restarts.
+ * - The outage records when the last successful check before it ran, since it
+ *   began somewhere between then and its first failed check.
+ * - After an outage ends, the response times of the next few successful checks give
+ *   its settled response time, returned as an amendment to the ended outage. A failed
+ *   check before then cancels it.
  */
 export function applyCheck(
   prev: MonitorState,
   { online, at, deviceOnline = true, failure, latencyMs = null }: CheckResult,
-  { threshold, intervalMs, newId, isp = null, ip = null, asn = null }: MonitorOptions,
-): { state: MonitorState; events: MonitorEvent[] } {
+  { threshold, intervalMs, newId, isp = null, ipv4 = null, ipv6 = null, asn = null }: MonitorOptions,
+): { state: MonitorState; events: MonitorEvent[]; amendments: OutageAmendment[] } {
   const events: MonitorEvent[] = [];
+  const amendments: OutageAmendment[] = [];
   let state = prev;
 
   if (isGap(state.lastCheckAt, at, intervalMs)) {
@@ -172,16 +215,28 @@ export function applyCheck(
   }
 
   if (online) {
+    let { recoveredAt, settling } = state;
     if (state.currentOutage) {
       events.push({ type: 'ended', outage: endOutage(state.currentOutage, at, 'restored', latencyMs) });
+      recoveredAt = at;
+      settling = { outageId: state.currentOutage.id, samples: [] };
+    } else if (settling && latencyMs !== null) {
+      const samples = [...settling.samples, latencyMs];
+      if (samples.length >= SETTLED_SAMPLE_COUNT) {
+        amendments.push({ id: settling.outageId, patch: { latencySettledMs: median(samples) } });
+        settling = null;
+      } else {
+        settling = { ...settling, samples };
+      }
     }
     const recentLatencies =
       latencyMs === null
         ? state.recentLatencies
         : [...state.recentLatencies, latencyMs].slice(-RECENT_LATENCY_COUNT);
     return {
-      state: { status: 'up', streak: EMPTY_STREAK, lastCheckAt: at, currentOutage: null, recentLatencies },
+      state: { status: 'up', streak: EMPTY_STREAK, lastCheckAt: at, currentOutage: null, recentLatencies, recoveredAt, settling },
       events,
+      amendments,
     };
   }
 
@@ -194,6 +249,12 @@ export function applyCheck(
   };
   const streakFailure = mergeFailure(prevStreak.consecutiveFailures === 0 ? undefined : prevStreak.failure, failure);
   if (streakFailure) streak.failure = streakFailure;
+  // After a gap the status is back to unknown, so an old success isn't mistaken for the last one.
+  const lastSuccessAt =
+    prevStreak.consecutiveFailures === 0
+      ? (state.status === 'up' ? state.lastCheckAt : null)
+      : (prevStreak.lastSuccessAt ?? null);
+  if (lastSuccessAt !== null) streak.lastSuccessAt = lastSuccessAt;
 
   let currentOutage = state.currentOutage;
   if (!currentOutage && streak.consecutiveFailures >= threshold) {
@@ -203,8 +264,10 @@ export function applyCheck(
       endTime: null,
       duration: null,
       cause: streak.local ? 'local' : 'isp',
+      lastGoodCheckAt: lastSuccessAt !== null ? new Date(lastSuccessAt).toISOString() : null,
       isp,
-      ip,
+      ipv4,
+      ipv6,
       asn,
       checkIntervalSeconds: intervalMs / 1000,
       failureThreshold: threshold,
@@ -231,8 +294,12 @@ export function applyCheck(
       lastCheckAt: at,
       currentOutage,
       recentLatencies: state.recentLatencies,
+      recoveredAt: state.recoveredAt,
+      // The connection dropped again, so it hasn't settled.
+      settling: null,
     },
     events,
+    amendments,
   };
 }
 

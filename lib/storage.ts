@@ -24,6 +24,11 @@ export interface TrackerData {
   lastCheckAt: number | null;
   /** Milliseconds actually spent monitoring, per local day ('YYYY-MM-DD'). */
   monitoredByDay: Record<string, number>;
+  /**
+   * The same, per local hour ('YYYY-MM-DDTHH'), for the time-of-day breakdown. Missing in
+   * data saved before it was recorded; entries older than MONITORED_HOURS_KEPT_DAYS are dropped.
+   */
+  monitoredByHour: Record<string, number>;
   /** Monitoring time assumed for history migrated from version 1, which didn't record it. */
   legacyMonitoredMs: number;
   /** In-progress failure streak, so a tab that takes over checking can continue it. */
@@ -41,6 +46,7 @@ export function emptyData(): TrackerData {
     trackingStartTime: null,
     lastCheckAt: null,
     monitoredByDay: {},
+    monitoredByHour: {},
     legacyMonitoredMs: 0,
     streak: EMPTY_STREAK,
     recentLatencies: [],
@@ -104,12 +110,15 @@ export function validateOutage(value: unknown): Outage | null {
   if (isNonNegativeNumber(o.checkIntervalSeconds)) outage.checkIntervalSeconds = o.checkIntervalSeconds;
   if (isNonNegativeNumber(o.failureThreshold)) outage.failureThreshold = o.failureThreshold;
   if (isOneOf(o.failure, FAILURES)) outage.failure = o.failure;
-  for (const key of ['ip', 'asn', 'ispAfter', 'ipAfter', 'asnAfter'] as const) {
+  if (isTimestamp(o.lastGoodCheckAt) || o.lastGoodCheckAt === null) outage.lastGoodCheckAt = o.lastGoodCheckAt;
+  for (const key of ['ipv4', 'ipv6', 'ip', 'asn', 'ispAfter', 'ipv4After', 'ipv6After', 'ipAfter', 'asnAfter'] as const) {
     const value = o[key];
     if (isStringOrNull(value)) outage[key] = value;
   }
-  if (isNumberOrNull(o.latencyBeforeMs)) outage.latencyBeforeMs = o.latencyBeforeMs;
-  if (isNumberOrNull(o.latencyAfterMs)) outage.latencyAfterMs = o.latencyAfterMs;
+  for (const key of ['latencyBeforeMs', 'latencyAfterMs', 'latencySettledMs'] as const) {
+    const value = o[key];
+    if (isNumberOrNull(value)) outage[key] = value;
+  }
   return outage;
 }
 
@@ -147,11 +156,11 @@ function validateOutages(value: unknown): Outage[] {
   return normalizeOutages(value.map(validateOutage).filter((o): o is Outage => o !== null));
 }
 
-function validateMonitoredByDay(value: unknown): Record<string, number> {
+function validateMonitoredTotals(value: unknown, keyPattern: RegExp): Record<string, number> {
   if (!value || typeof value !== 'object') return {};
   const result: Record<string, number> = {};
-  for (const [day, ms] of Object.entries(value)) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && isNonNegativeNumber(ms)) result[day] = ms;
+  for (const [key, ms] of Object.entries(value)) {
+    if (keyPattern.test(key) && isNonNegativeNumber(ms)) result[key] = ms;
   }
   return result;
 }
@@ -169,6 +178,7 @@ function validateStreak(value: unknown): FailureStreak {
     local: s.local === true,
   };
   if (isOneOf(s.failure, FAILURES)) streak.failure = s.failure;
+  if (isNonNegativeNumber(s.lastSuccessAt)) streak.lastSuccessAt = s.lastSuccessAt;
   return streak;
 }
 
@@ -183,7 +193,8 @@ function fromStored(value: Record<string, unknown>): TrackerData {
     outages: validateOutages(value.outages),
     trackingStartTime: isTimestamp(value.trackingStartTime) ? value.trackingStartTime : null,
     lastCheckAt: isNonNegativeNumber(value.lastCheckAt) ? value.lastCheckAt : null,
-    monitoredByDay: validateMonitoredByDay(value.monitoredByDay),
+    monitoredByDay: validateMonitoredTotals(value.monitoredByDay, /^\d{4}-\d{2}-\d{2}$/),
+    monitoredByHour: validateMonitoredTotals(value.monitoredByHour, /^\d{4}-\d{2}-\d{2}T\d{2}$/),
     legacyMonitoredMs: isNonNegativeNumber(value.legacyMonitoredMs) ? value.legacyMonitoredMs : 0,
     streak: validateStreak(value.streak),
     recentLatencies: validateLatencies(value.recentLatencies),

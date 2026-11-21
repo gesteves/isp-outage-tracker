@@ -31,13 +31,17 @@ const diagnostics = {
   checkIntervalSeconds: 60,
   failureThreshold: 2,
   failure: 'mixed',
-  ip: '203.0.113.7',
+  lastGoodCheckAt: '2024-01-01T09:59:30.000Z',
+  ipv4: '203.0.113.7',
+  ipv6: '2001:db8::7',
   asn: 'AS7922',
   ispAfter: 'Backup LTE',
-  ipAfter: null,
+  ipv4After: null,
+  ipv6After: null,
   asnAfter: 'AS21928',
   latencyBeforeMs: 42,
   latencyAfterMs: null,
+  latencySettledMs: 55,
 } satisfies Partial<Outage>
 
 describe('storage', () => {
@@ -53,8 +57,9 @@ describe('storage', () => {
         trackingStartTime: '2024-01-01T00:00:00.000Z',
         lastCheckAt: NOW - 1000,
         monitoredByDay: { '2024-01-01': 5000 },
+        monitoredByHour: { '2024-01-01T09': 5000 },
         legacyMonitoredMs: 10,
-        streak: { consecutiveFailures: 1, firstFailureAt: NOW - 1000, local: false },
+        streak: { consecutiveFailures: 1, firstFailureAt: NOW - 1000, local: false, lastSuccessAt: NOW - 61_000 },
       }
       saveData(data)
       expect(loadData(NOW)).toEqual({ data, changed: false })
@@ -94,6 +99,7 @@ describe('storage', () => {
         trackingStartTime: 'not a date',
         lastCheckAt: -5,
         monitoredByDay: { '2024-01-01': 100, garbage: 5, '2024-01-02': 'x' },
+        monitoredByHour: { '2024-01-01T09': 100, '2024-01-01': 5, '2024-01-01T10': -1 },
         streak: { consecutiveFailures: 'two' },
       }))
       const { data, changed } = loadData(NOW)
@@ -102,6 +108,7 @@ describe('storage', () => {
       expect(data.trackingStartTime).toBeNull()
       expect(data.lastCheckAt).toBeNull()
       expect(data.monitoredByDay).toEqual({ '2024-01-01': 100 })
+      expect(data.monitoredByHour).toEqual({ '2024-01-01T09': 100 })
       expect(data.streak.consecutiveFailures).toBe(0)
     })
 
@@ -184,6 +191,11 @@ describe('storage', () => {
       expect(validateOutage({ ...completed, ...diagnostics })).toEqual({ ...completed, ...diagnostics })
     })
 
+    it('keeps the single public IP of older records', () => {
+      const legacy = { ...completed, ip: '203.0.113.7', ipAfter: '2001:db8::1' }
+      expect(validateOutage(legacy)).toEqual(legacy)
+    })
+
     it('drops malformed diagnostics', () => {
       const outage = validateOutage({
         ...completed,
@@ -191,7 +203,11 @@ describe('storage', () => {
         checkIntervalSeconds: '60',
         failureThreshold: -1,
         failure: 'aliens',
+        lastGoodCheckAt: 'yesterday-ish',
         ip: 42,
+        ipv4: 42,
+        ipv6After: [],
+        latencySettledMs: -1,
         asn: {},
         ispAfter: undefined,
         latencyBeforeMs: -5,
