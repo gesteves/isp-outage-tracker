@@ -145,8 +145,8 @@ export default function Dashboard() {
               Add Note
             </button>
             <button
-              onClick={() => exportToCSV(outages)}
-              disabled={outages.length === 0}
+              onClick={() => exportToCSV(outages, annotations)}
+              disabled={outages.length === 0 && annotations.length === 0}
               className="flex-1 md:flex-none whitespace-nowrap px-2 md:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
             >
               Export CSV
