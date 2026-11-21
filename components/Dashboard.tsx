@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CHECK_INTERVAL_MS, FAILURE_THRESHOLD } from '@/lib/config';
 import { exportToCSV } from '@/lib/csv';
-import { notifyOutageEnded, notifyOutageStarted } from '@/lib/notifications';
 import { registerServiceWorker } from '@/lib/register-sw';
 import { exportReport } from '@/lib/report-export';
 import { calculateStats, dailyBreakdown } from '@/lib/stats';
@@ -18,12 +17,9 @@ import DailyChart from '@/components/DailyChart';
 import ExportMenu from '@/components/ExportMenu';
 import { CheckStatusLine, LiveStatusIndicator } from '@/components/LiveStatus';
 import NoteDialog from '@/components/NoteDialog';
-import NotificationToggle from '@/components/NotificationToggle';
 import OutageList from '@/components/OutageList';
 import StatsDisplay from '@/components/StatsDisplay';
 import Toggle from '@/components/Toggle';
-
-const monitorDeps = { onOutageStarted: notifyOutageStarted, onOutageEnded: notifyOutageEnded };
 
 /** Holds the stats cards' space until stored history has loaded. */
 function StatsPlaceholder() {
@@ -38,7 +34,7 @@ function StatsPlaceholder() {
 
 export default function Dashboard() {
   const [settings, updateSettings] = useSettings();
-  const monitor = useConnectivityMonitor(monitorDeps);
+  const monitor = useConnectivityMonitor();
   // Stats, the chart and the history only need to move once a minute. The parts that
   // tick every second (countdown, outage duration) have their own clock in LiveStatus.
   const minuteNow = useNow(60_000);
@@ -99,7 +95,7 @@ export default function Dashboard() {
             onCheckNow={monitor.checkNow}
           />
 
-          {/* Rendered only on the client: support for these depends on the browser. */}
+          {/* Rendered only on the client: support for this depends on the browser. */}
           {loaded && (
             <div className="mt-4 flex flex-wrap items-start gap-x-6 gap-y-3">
               {wakeLock.supported && (
@@ -110,10 +106,6 @@ export default function Dashboard() {
                   description={wakeLockError}
                 />
               )}
-              <NotificationToggle
-                enabled={settings.notifyOnStatusChange}
-                onChange={on => updateSettings({ notifyOnStatusChange: on })}
-              />
             </div>
           )}
         </div>

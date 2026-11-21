@@ -10,14 +10,13 @@ Tests are organized in the `__tests__` directory:
 __tests__/
 ├── lib/
 │   ├── monitor.test.ts               # State machine: thresholds, backdating, gaps, local vs ISP, retry delay
-│   ├── connectivity-monitor.test.ts  # Runner: scheduling, persistence, ISP, notifications, editing outages, multiple tabs, takeover
+│   ├── connectivity-monitor.test.ts  # Runner: scheduling, persistence, ISP, editing outages, multiple tabs, takeover
 │   ├── tab-coordinator.test.ts       # Leader election (Web Locks), takeover (steal) and messaging (BroadcastChannel)
 │   ├── storage.test.ts               # Versioned data, validation, migration from version 1, leadership epoch
 │   ├── settings.test.ts              # Per-device settings and cross-tab sync
 │   ├── stats.test.ts                 # Honest uptime, monitored time per day, daily breakdown, recent windows
 │   ├── format.test.ts                # Durations, percentages, relative times
 │   ├── csv.test.ts                   # CSV columns, formula guard, BOM and dated download
-│   ├── notifications.test.ts         # Status-change notifications and their conditions
 │   ├── config.test.ts                # Env var parsing and fallbacks
 │   ├── connectivity.test.ts          # Multi-endpoint connectivity checking
 │   └── isp-detection.test.ts         # ISP auto-detection with caching
@@ -28,7 +27,6 @@ __tests__/
 └── components/
     ├── StatusIndicator.test.tsx  # Up / down / checking display
     ├── Dashboard.test.tsx        # Loading state, which tab monitors, check now, keep screen on
-    ├── NotificationToggle.test.tsx  # Permission requests, refusals, changes made in browser settings
     ├── StatsDisplay.test.tsx     # Uptime, monitored time, ISP vs local figures, recent windows
     ├── DailyChart.test.tsx       # Bars, selection, keyboard, legend, table view
     ├── OutageList.test.tsx       # History, sorting, badges, pages, flag and delete
@@ -59,7 +57,7 @@ The test suite covers:
 - ✅ **Multiple tabs**: Only the leader checks; followers mirror it; handover when the leader closes; takeover when it stops responding, without the old leader writing over the new one
 - ✅ **Storage**: Versioned data, validation, and migration from the old format
 - ✅ **Stats**: Uptime over monitored time, daily breakdown split at local midnight
-- ✅ **Notifications, wake lock, tab title**: Browser APIs faked in jsdom
+- ✅ **Wake lock, tab title**: Browser APIs faked in jsdom
 
 ### Components
 - ✅ **Dashboard pieces**: Status, stats, daily chart, history, confirm dialog, toggles

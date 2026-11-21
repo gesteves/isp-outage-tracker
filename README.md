@@ -14,7 +14,6 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 - 🗒️ **Notes**: add a note at any date and time (a new router, a plan change) and it shows up in the history among the outages, and on that day in the daily chart; edit or delete it later. Notes don't affect the stats
 - 📥 **CSV export** (under **Export**): local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, durations, time since the previous outage, cause and failure type, how the outage ended, ISP, public IP and ASN before and after, response times before and after, and the detection settings. Notes are included as their own rows (Type `Note`), in time order among the outages, with the text in the Note column
 - 🤖 **Markdown export**: a file to hand to an AI assistant for a report. It explains what each field means (e.g. that an outage ended by "Monitoring stopped" may have lasted longer), and includes the app's uptime figures for all time, the last 30 and 7 days and today, how many hours were monitored each day (so a day the app wasn't running isn't mistaken for a day without outages), and the same outage and note rows as the CSV
-- 🔔 **Status notifications**: optional notifications when the internet goes down and when it comes back
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
 - 📴 **Works offline**: installable, and still loads if you reload it during an outage
 - 🗂️ **Multi-tab safe**: with several tabs open, only one runs checks; the others mirror it, and take over if it stops responding
@@ -54,7 +53,7 @@ Time when the app wasn't running doesn't count either way, and the stats card sh
 
 ### Gaps in monitoring
 
-The app can only record what it observes. Sometimes no check runs for more than two check intervals plus a minute: the laptop slept, the tab was closed, or the iPad suspended Safari. When that happens, any open outage is closed at the last check that saw the connection down, and the failure streak restarts. That keeps an outage from stretching across hours when the app wasn't watching. Closing an outage this way doesn't send a "back online" notification, and the outage is tagged **Monitoring stopped** (`Ended by: Monitoring stopped` in the CSV), since it may have lasted longer.
+The app can only record what it observes. Sometimes no check runs for more than two check intervals plus a minute: the laptop slept, the tab was closed, or the iPad suspended Safari. When that happens, any open outage is closed at the last check that saw the connection down, and the failure streak restarts. That keeps an outage from stretching across hours when the app wasn't watching. The outage is tagged **Monitoring stopped** (`Ended by: Monitoring stopped` in the CSV), since it may have lasted longer.
 
 ### Multiple tabs
 
@@ -73,12 +72,6 @@ Keeps the display awake while the page is visible, using the [Screen Wake Lock A
 - Requires HTTPS (or `localhost`). Safari supports it from iPadOS/iOS 16.4; as a home-screen app, from iPadOS 18.4.
 - Browsers may refuse it, e.g. in battery saver mode. The toggle then says so; tap it to try again.
 - On a device dedicated to this, you can also set **Settings → Display & Brightness → Auto-Lock → Never**.
-
-### Notify when status changes
-
-Shows a notification when an outage starts and when the connection comes back (with how long it was down). Notifications only appear while the dashboard isn't visible, and only from the tab that runs the checks. They're local, so the "down" notification works even with no internet.
-
-- On iPad and iPhone, web notifications only work after **Share → Add to Home Screen**. iOS also pauses web apps soon after they leave the screen, and a paused app can't check anything, so on those devices a notification only arrives if a check runs before that happens. They're most dependable from a desktop browser tab.
 
 ### Install / offline
 
@@ -187,7 +180,7 @@ NEXT_PUBLIC_FAILURE_THRESHOLD=2
 Everything is stored in your browser's localStorage:
 
 - `isp-tracker-data`: outages, notes, tracking start time, monitored time per day, the last check time and any in-progress failure streak. It's versioned; data from earlier versions of the app is migrated automatically the first time it loads.
-- `isp-tracker-settings`: the "keep screen on" and notification toggles, per device.
+- `isp-tracker-settings`: the "keep screen on" toggle, per device.
 - `isp-name-cache`: the detected ISP name, for an hour.
 - `isp-tracker-leader-epoch`: a counter bumped each time a tab takes over checking, so a tab that was replaced while suspended knows not to write.
 

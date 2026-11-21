@@ -435,37 +435,6 @@ describe('createConnectivityMonitor', () => {
     expect(detectIsp.mock.calls.every(([options]) => options.force === false)).toBe(true)
   })
 
-  it('reports when an outage is confirmed and when it ends', async () => {
-    const onOutageStarted = jest.fn()
-    const onOutageEnded = jest.fn()
-    const { monitor } = setup([false, false, false, true], { onOutageStarted, onOutageEnded })
-    monitor.start()
-    await flush()
-    expect(onOutageStarted).not.toHaveBeenCalled() // one failure isn't an outage yet
-    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
-    expect(onOutageStarted).toHaveBeenCalledWith(expect.objectContaining({ id: 'outage-1', endTime: null }))
-    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS) // still down: no repeat
-    expect(onOutageStarted).toHaveBeenCalledTimes(1)
-    expect(onOutageEnded).not.toHaveBeenCalled()
-    await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
-    // Backdated to the first failure at T0, ended by the success at T0 + 30s.
-    expect(onOutageEnded).toHaveBeenCalledWith(expect.objectContaining({ id: 'outage-1', duration: 30 }))
-  })
-
-  it('does not announce a recovery for an outage closed by a gap in monitoring', async () => {
-    const onOutageEnded = jest.fn()
-    const HOUR = 60 * 60_000
-    const ongoing: Outage = { id: 'o', startTime: iso(T0 - 4 * HOUR), endTime: null, duration: null }
-    // The app was closed an hour into an outage and reopened 3 hours later, still offline.
-    saveData({ ...emptyData(), outages: [ongoing], trackingStartTime: iso(T0 - 5 * HOUR), lastCheckAt: T0 - 3 * HOUR })
-    const { monitor } = setup([false], { onOutageEnded })
-    monitor.start()
-    await flush()
-    expect(stored().outages[0].endTime).toBe(iso(T0 - 3 * HOUR))
-    expect(stored().outages[0].endReason).toBe('gap')
-    expect(onOutageEnded).not.toHaveBeenCalled()
-  })
-
   it('does not record the network after on an outage closed by a gap', async () => {
     const HOUR = 60 * 60_000
     const ongoing: Outage = { id: 'o', startTime: iso(T0 - 4 * HOUR), endTime: null, duration: null }
@@ -853,19 +822,6 @@ describe('createConnectivityMonitor', () => {
         await flush()
         expect(tabA.monitor.getSnapshot().role).toBe('follower')
       })
-    })
-
-    it('only the leader reports outages starting and ending', async () => {
-      const onOutageStarted = jest.fn()
-      const onOutageEnded = jest.fn()
-      const { tabA, tabB } = twoTabs({ a: [false, false, true], deps: { onOutageStarted, onOutageEnded } })
-      tabA.monitor.start()
-      tabB.monitor.start()
-      await flush()
-      await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
-      await jest.advanceTimersByTimeAsync(FAST_RETRY_MS)
-      expect(onOutageStarted).toHaveBeenCalledTimes(1)
-      expect(onOutageEnded).toHaveBeenCalledTimes(1)
     })
   })
 })

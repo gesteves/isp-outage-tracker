@@ -47,7 +47,7 @@ function wakeLock(overrides: Partial<WakeLockState> = {}): WakeLockState {
 describe('Dashboard', () => {
   beforeEach(() => {
     mockWakeLock.mockReturnValue(wakeLock())
-    settingsStore.set({ keepScreenOn: false, notifyOnStatusChange: false })
+    settingsStore.set({ keepScreenOn: false })
   })
 
   it('lets you reset tracking even when no outages were logged', () => {

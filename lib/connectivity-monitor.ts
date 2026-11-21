@@ -94,10 +94,6 @@ export interface MonitorDeps {
   newId?: () => string;
   newAnnotationId?: () => string;
   detectIsp?: (options: { force: boolean }) => Promise<NetworkInfo | null>;
-  /** Called by the leader tab when an outage is confirmed, e.g. to show a notification. */
-  onOutageStarted?: (outage: Outage) => void;
-  /** Called by the leader tab when the connection is seen coming back. */
-  onOutageEnded?: (outage: Outage) => void;
   coordinator?: TabCoordinator<MonitorSnapshot>;
 }
 
@@ -140,8 +136,6 @@ export function createConnectivityMonitor({
   newId = newOutageId,
   newAnnotationId: newNoteId = newAnnotationId,
   detectIsp = detectISP,
-  onOutageStarted,
-  onOutageEnded,
   coordinator: providedCoordinator,
 }: MonitorDeps = {}): ConnectivityMonitor {
   const listeners = new Set<() => void>();
@@ -328,14 +322,6 @@ export function createConnectivityMonitor({
     return true;
   }
 
-  function notify(handler: ((outage: Outage) => void) | undefined, outage: Outage) {
-    try {
-      handler?.(outage);
-    } catch (error) {
-      console.error('Error in outage handler:', error);
-    }
-  }
-
   function record({ online, failure, latencyMs }: CheckOutcome, at: number, deviceIsOnline: boolean) {
     if (!canWrite()) return;
     const previousCheck = state.lastCheckAt;
@@ -371,12 +357,9 @@ export function createConnectivityMonitor({
     let ended = false;
     const restoredIds: string[] = [];
     for (const event of result.events) {
-      if (event.type === 'started') notify(onOutageStarted, event.outage);
       if (event.type !== 'ended') continue;
       ended = true;
-      if (event.gap) continue;
-      restoredIds.push(event.outage.id);
-      notify(onOutageEnded, event.outage);
+      if (!event.gap) restoredIds.push(event.outage.id);
     }
     // After an outage the connection may have come back on a different ISP (e.g. a
     // failover link) or IP, so skip the cache, and record what's found on the outage.

@@ -4,13 +4,10 @@ const SETTINGS_VERSION = 1;
 
 export interface Settings {
   keepScreenOn: boolean;
-  /** Notify when an outage starts and when the connection comes back. */
-  notifyOnStatusChange: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   keepScreenOn: false,
-  notifyOnStatusChange: false,
 });
 
 export interface SettingsStore {
@@ -25,10 +22,7 @@ function read(): Settings {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (!parsed || typeof parsed !== 'object') return DEFAULT_SETTINGS;
-    return {
-      keepScreenOn: parsed.keepScreenOn === true,
-      notifyOnStatusChange: parsed.notifyOnStatusChange === true,
-    };
+    return { keepScreenOn: parsed.keepScreenOn === true };
   } catch {
     return DEFAULT_SETTINGS;
   }

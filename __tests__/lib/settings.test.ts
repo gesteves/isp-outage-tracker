@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, SETTINGS_KEY, createSettingsStore } from '@/lib/setti
 describe('settings store', () => {
   it('defaults everything off', () => {
     expect(createSettingsStore().get()).toEqual(DEFAULT_SETTINGS)
-    expect(DEFAULT_SETTINGS).toEqual({ keepScreenOn: false, notifyOnStatusChange: false })
+    expect(DEFAULT_SETTINGS).toEqual({ keepScreenOn: false })
   })
 
   it('persists changes with a version number', () => {
@@ -12,7 +12,6 @@ describe('settings store', () => {
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!)).toEqual({
       version: 1,
       keepScreenOn: true,
-      notifyOnStatusChange: false,
     })
     expect(createSettingsStore().get().keepScreenOn).toBe(true)
   })
@@ -21,13 +20,13 @@ describe('settings store', () => {
     const store = createSettingsStore()
     const first = store.get()
     expect(store.get()).toBe(first)
-    store.set({ notifyOnStatusChange: true })
+    store.set({ keepScreenOn: true })
     expect(store.get()).not.toBe(first)
   })
 
   it('ignores malformed values', () => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ keepScreenOn: 'yes', notifyOnStatusChange: true }))
-    expect(createSettingsStore().get()).toEqual({ keepScreenOn: false, notifyOnStatusChange: true })
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ keepScreenOn: 'yes' }))
+    expect(createSettingsStore().get()).toEqual(DEFAULT_SETTINGS)
     localStorage.setItem(SETTINGS_KEY, '{oops')
     expect(createSettingsStore().get()).toEqual(DEFAULT_SETTINGS)
   })
@@ -40,10 +39,10 @@ describe('settings store', () => {
     store.set({ keepScreenOn: true })
     expect(listener).toHaveBeenCalledTimes(1)
 
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ version: 1, keepScreenOn: false, notifyOnStatusChange: true }))
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ version: 1, keepScreenOn: false }))
     window.dispatchEvent(new StorageEvent('storage', { key: SETTINGS_KEY }))
     expect(listener).toHaveBeenCalledTimes(2)
-    expect(store.get()).toEqual({ keepScreenOn: false, notifyOnStatusChange: true })
+    expect(store.get()).toEqual({ keepScreenOn: false })
 
     unsubscribe()
     window.dispatchEvent(new StorageEvent('storage', { key: SETTINGS_KEY }))
