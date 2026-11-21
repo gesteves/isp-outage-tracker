@@ -2,10 +2,12 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import Dashboard from '@/components/Dashboard'
 import { UseConnectivityMonitor, useConnectivityMonitor } from '@/hooks/useConnectivityMonitor'
 import { WakeLockState, useWakeLock } from '@/hooks/useWakeLock'
+import { downloadFile } from '@/lib/download'
 import { settingsStore } from '@/lib/settings'
 
 jest.mock('@/hooks/useConnectivityMonitor', () => ({ useConnectivityMonitor: jest.fn() }))
 jest.mock('@/hooks/useWakeLock', () => ({ useWakeLock: jest.fn() }))
+jest.mock('@/lib/download', () => ({ downloadFile: jest.fn() }))
 
 const mockMonitor = useConnectivityMonitor as jest.MockedFunction<typeof useConnectivityMonitor>
 const mockWakeLock = useWakeLock as jest.MockedFunction<typeof useWakeLock>
@@ -55,7 +57,7 @@ describe('Dashboard', () => {
 
     const clear = screen.getByRole('button', { name: 'Clear Logs' })
     expect(clear).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
 
     fireEvent.click(clear)
     expect(screen.getByText(/resetting uptime and monitored time/)).toBeInTheDocument()
@@ -66,7 +68,34 @@ describe('Dashboard', () => {
   it('lets you export when there are notes but no outages', () => {
     mockMonitor.mockReturnValue(monitor({ annotations: [{ id: 'note-1', time: '2025-10-12T00:00:00.000Z', text: 'New router' }] }))
     render(<Dashboard />)
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
+  })
+
+  it('offers CSV and Markdown exports', () => {
+    const download = downloadFile as jest.MockedFunction<typeof downloadFile>
+    download.mockClear()
+    mockMonitor.mockReturnValue(monitor({
+      annotations: [{ id: 'note-1', time: '2025-10-12T00:00:00.000Z', text: 'New router' }],
+      ispName: 'Example ISP',
+    }))
+    render(<Dashboard />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }))
+    expect(download).toHaveBeenCalledTimes(1)
+    expect(download.mock.calls[0][0]).toMatch(/^isp-outages-\d{4}-\d{2}-\d{2}\.csv$/)
+    expect(download.mock.calls[0][1].join('')).toContain('"New router"')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Markdown/ }))
+    expect(download).toHaveBeenCalledTimes(2)
+    const [name, parts, type] = download.mock.calls[1]
+    expect(name).toMatch(/^isp-outage-report-data-\d{4}-\d{2}-\d{2}\.md$/)
+    expect(type).toBe('text/markdown;charset=utf-8')
+    const md = parts.join('')
+    expect(md).toContain('- Current ISP: Example ISP')
+    expect(md).toContain('## Daily coverage')
+    expect(md).toContain('"New router"')
   })
 
   it('has nothing to reset before tracking starts', () => {

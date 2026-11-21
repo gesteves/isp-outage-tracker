@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CHECK_INTERVAL_MS } from '@/lib/config';
+import { CHECK_INTERVAL_MS, FAILURE_THRESHOLD } from '@/lib/config';
 import { exportToCSV } from '@/lib/csv';
 import { notifyOutageEnded, notifyOutageStarted } from '@/lib/notifications';
 import { registerServiceWorker } from '@/lib/register-sw';
+import { exportReport } from '@/lib/report-export';
 import { calculateStats, dailyBreakdown } from '@/lib/stats';
 import { useConnectivityMonitor } from '@/hooks/useConnectivityMonitor';
 import { useDocumentStatus } from '@/hooks/useDocumentStatus';
@@ -14,6 +15,7 @@ import { useWakeLock } from '@/hooks/useWakeLock';
 import { Annotation } from '@/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DailyChart from '@/components/DailyChart';
+import ExportMenu from '@/components/ExportMenu';
 import { CheckStatusLine, LiveStatusIndicator } from '@/components/LiveStatus';
 import NoteDialog from '@/components/NoteDialog';
 import NotificationToggle from '@/components/NotificationToggle';
@@ -144,13 +146,31 @@ export default function Dashboard() {
             >
               Add Note
             </button>
-            <button
-              onClick={() => exportToCSV(outages, annotations)}
+            <ExportMenu
+              className="flex-1 md:flex-none"
               disabled={outages.length === 0 && annotations.length === 0}
-              className="flex-1 md:flex-none whitespace-nowrap px-2 md:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed transition-colors text-sm md:text-base"
-            >
-              Export CSV
-            </button>
+              options={[
+                {
+                  id: 'csv',
+                  label: 'CSV',
+                  description: 'For spreadsheets',
+                  onSelect: () => exportToCSV(outages, annotations),
+                },
+                {
+                  id: 'markdown',
+                  label: 'Markdown',
+                  description: 'Data plus definitions, to paste into a chat',
+                  onSelect: () => {
+                    // Exported as of this moment, not the last minute tick the stats use.
+                    const at = Math.max(Date.now(), lastCheckAt ?? 0);
+                    exportReport(
+                      { outages, annotations, trackingStartTime, lastCheckAt, monitoredByDay, legacyMonitoredMs },
+                      { now: at, intervalMs: CHECK_INTERVAL_MS, failureThreshold: FAILURE_THRESHOLD, ispName: monitor.ispName },
+                    );
+                  },
+                },
+              ]}
+            />
             <button
               onClick={() => setShowClearConfirm(true)}
               // Also resets uptime and monitored time, so it's useful even with no outages logged.

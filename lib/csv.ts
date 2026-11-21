@@ -1,5 +1,6 @@
 import { Annotation, Outage, OutageEndReason, OutageFailure } from '@/types';
 import { sortAnnotations } from '@/lib/annotations';
+import { downloadFile } from '@/lib/download';
 import { formatLocalIso } from '@/lib/format';
 import { dayKey } from '@/lib/stats';
 
@@ -55,7 +56,7 @@ function csvCell(value: string): string {
 const text = (value: string | null | undefined) => value ?? '';
 const number = (value: number | null | undefined) => (value == null ? '' : String(value));
 
-function localTimeZone(): string {
+export function localTimeZone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
   } catch {
@@ -147,19 +148,7 @@ export function buildCsv(
 
 export function exportToCSV(outages: Outage[], annotations: Annotation[] = [], now: number = Date.now()): void {
   // The byte order mark makes Excel read the file as UTF-8 (ISP names can have
-  // non-ASCII characters).
-  const blob = new Blob(['﻿', buildCsv(outages, annotations)], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-
-  link.setAttribute('href', url);
-  // The local date, so an evening export isn't named after tomorrow (UTC).
-  link.setAttribute('download', `isp-outages-${dayKey(now)}.csv`);
-  link.style.visibility = 'hidden';
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  // Revoking synchronously can cancel the download in some browsers, so wait a bit.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  // non-ASCII characters). The local date, so an evening export isn't named after
+  // tomorrow (UTC).
+  downloadFile(`isp-outages-${dayKey(now)}.csv`, ['\uFEFF', buildCsv(outages, annotations)], 'text/csv;charset=utf-8;');
 }
