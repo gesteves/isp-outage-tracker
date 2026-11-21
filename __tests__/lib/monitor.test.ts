@@ -5,6 +5,8 @@ import {
   MonitorOptions,
   MonitorState,
   RECENT_LATENCY_COUNT,
+  RECOVERY_WATCH_MS,
+  SETTLED_SAMPLE_COUNT,
   applyCheck,
   gapThresholdMs,
   initialMonitorState,
@@ -213,14 +215,16 @@ describe('monitor state machine', () => {
     const down = (failure: CheckFailure) => ({ online: false, failure, latencyMs: null })
 
     it('records the settings, network and response time before the outage when it opens', () => {
-      const options = { ...makeOptions(), isp: 'Comcast', ip: '203.0.113.7', asn: 'AS7922' }
+      const options = { ...makeOptions(), isp: 'Comcast', ipv4: '203.0.113.7', ipv6: '2001:db8::7', asn: 'AS7922' }
       const { events } = feed([up(40), up(10), up(30), down('all'), down('all')], options)
       expect(events[0]).toMatchObject({
         type: 'started',
         outage: {
           isp: 'Comcast',
-          ip: '203.0.113.7',
+          ipv4: '203.0.113.7',
+          ipv6: '2001:db8::7',
           asn: 'AS7922',
+          lastGoodCheckAt: iso(at(2)),
           checkIntervalSeconds: 60,
           failureThreshold: 2,
           failure: 'all',
@@ -381,6 +385,87 @@ describe('monitor state machine', () => {
 
     it('never waits longer than the configured interval', () => {
       expect(nextCheckDelay(run([false]).state, 5000)).toBe(5000)
+    })
+
+    it('keeps re-checking quickly for a while after an outage ends, to time a relapse', () => {
+      const options = makeOptions()
+      let state = initialMonitorState(null, null)
+      const apply = (online: boolean, ms: number) => {
+        state = applyCheck(state, { online, at: ms }, options).state
+      }
+      apply(false, T0)
+      apply(false, T0 + FAST_RETRY_MS)
+      const recovered = T0 + 2 * FAST_RETRY_MS
+      apply(true, recovered)
+      expect(nextCheckDelay(state, INTERVAL)).toBe(FAST_RETRY_MS)
+
+      apply(true, recovered + RECOVERY_WATCH_MS - FAST_RETRY_MS)
+      expect(nextCheckDelay(state, INTERVAL)).toBe(FAST_RETRY_MS)
+
+      apply(true, recovered + RECOVERY_WATCH_MS)
+      expect(nextCheckDelay(state, INTERVAL)).toBe(INTERVAL)
+    })
+  })
+
+  describe('last good check before an outage', () => {
+    it('is the successful check just before the first failed one', () => {
+      const { events } = run([true, true, false, false])
+      expect(events[0].outage.lastGoodCheckAt).toBe(iso(at(1)))
+    })
+
+    it('is null when nothing had succeeded yet', () => {
+      const { events } = run([false, false])
+      expect(events[0].outage.lastGoodCheckAt).toBeNull()
+    })
+
+    it('is null after a gap: an old success says nothing about when this began', () => {
+      const options = makeOptions()
+      let { state } = applyCheck(initialMonitorState(null, null), { online: true, at: T0 }, options)
+      const later = T0 + gapThresholdMs(INTERVAL) + 1
+      ;({ state } = applyCheck(state, { online: false, at: later }, options))
+      const { events } = applyCheck(state, { online: false, at: later + FAST_RETRY_MS }, options)
+      expect(events[0].outage.lastGoodCheckAt).toBeNull()
+    })
+  })
+
+  describe('settled response time after an outage', () => {
+    function recover() {
+      const options = makeOptions()
+      let state = initialMonitorState(null, null)
+      let t = T0
+      const apply = (online: boolean, latencyMs: number | null = null) => {
+        const result = applyCheck(state, { online, at: t, latencyMs }, options)
+        state = result.state
+        t += FAST_RETRY_MS
+        return result
+      }
+      apply(false)
+      apply(false)
+      apply(true, 4000) // the check that sees it come back: slow
+      return apply
+    }
+
+    it('is the median of the next few successful checks, as an amendment to the ended outage', () => {
+      const apply = recover()
+      const amendments = []
+      for (const latency of [90, 30, 50].slice(0, SETTLED_SAMPLE_COUNT)) amendments.push(...apply(true, latency).amendments)
+      expect(amendments).toEqual([{ id: 'outage-1', patch: { latencySettledMs: 50 } }])
+      // Only once.
+      expect(apply(true, 20).amendments).toEqual([])
+    })
+
+    it('skips checks without a response time', () => {
+      const apply = recover()
+      expect(apply(true, null).amendments).toEqual([])
+      expect(apply(true, 40).amendments).toEqual([])
+    })
+
+    it('is given up if the connection drops again first', () => {
+      const apply = recover()
+      apply(true, 40)
+      apply(false)
+      const amendments = [apply(true, 40), apply(true, 40), apply(true, 40)].flatMap(r => r.amendments)
+      expect(amendments).toEqual([])
     })
   })
 

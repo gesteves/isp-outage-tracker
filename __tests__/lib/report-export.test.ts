@@ -118,6 +118,120 @@ describe('buildReportMarkdown', () => {
   })
 })
 
+describe('new sections', () => {
+  it('lists incidents, the duration distribution and the summary facts', () => {
+    const md = build(input({
+      outages: [
+        outage('a', at(18, 10), 2),
+        outage('b', at(18, 10, 5), 20), // 3 minutes after a: same incident
+        outage('c', at(20, 9), 300),
+        outage('local', at(20, 8), 5, { cause: 'local' }),
+      ],
+    }))
+    expect(md).toContain('## Incidents')
+    expect(md).toContain(`| 1 | ${formatLocalIso(at(18, 10))} | ${formatLocalIso(at(18, 10, 25))} | 25.0 | 2 | 22.0 |`)
+    expect(md).toContain('## Outage durations')
+    expect(md).toContain('| 1–5 minutes | 1 | 2.0 | 0.6% |')
+    expect(md).toContain('| 15–60 minutes | 1 | 20.0 | 6.2% |')
+    expect(md).toContain('| 4 hours or more | 1 | 300.0 | 93.2% |')
+    expect(md).toContain('- ISP outages: 3 in 2 incidents. Duration: median 20.0 minutes')
+  })
+
+  it("leaves out summary windows that would repeat all time, and says so", () => {
+    const md = build()
+    expect(md).not.toContain('| Last 7 days |')
+    expect(md).not.toContain('| Last 30 days |')
+    expect(md).toContain('| Today |')
+    expect(md).toContain('so last 30 days and last 7 days would be the same as all time')
+  })
+
+  it('breaks downtime down by hour of the day, against the time monitored then', () => {
+    const md = build(input({
+      outages: [outage('a', at(20, 9, 30), 60)],
+      // The last check was 3 minutes ago: the time since counts as monitored.
+      monitoredByHour: { '2025-10-20T09': HOUR, '2025-10-20T10': HOUR, '2025-10-20T11': 57 * 60_000 },
+      lastCheckAt: at(20, 11, 57),
+    }))
+    expect(md).toContain(`since ${formatLocalIso(at(20, 9))}`)
+    expect(md).toContain('| 09:00–09:59 | 1.0 | 1 | 30.0 | 50.0% |')
+    expect(md).toContain('| 10:00–10:59 | 1.0 | 0 | 30.0 | 50.0% |')
+    expect(md).toContain('| 11:00–11:59 | 1.0 | 0 | 0.0 | 0.0% |') // the live tail up to now
+    expect(md).toContain('| 03:00–03:59 | 0.0 | 0 | 0.0 | n/a |')
+  })
+
+  it('says when there is no per-hour data yet', () => {
+    expect(build()).toContain("Not available yet: the app hasn't recorded monitored time per hour.")
+  })
+
+  it('compares the periods before and after each note', () => {
+    const md = build()
+    expect(md).toContain('## Before and after notes')
+    // The 18th: 24 monitored hours spread over the day, so 9 of them before the 9:00 note.
+    expect(md).toContain(`| Before the first note | ${formatLocalIso(at(18, 0))} | ${formatLocalIso(at(18, 9))} | 9.0 | 0 | 0 | 0.0 | 0.0 | 100.00% |`)
+    expect(md).toContain('| After "New router ```not code```" |')
+  })
+
+  it('has no notes section without notes inside the tracked period', () => {
+    expect(build(input({ annotations: [] }))).not.toContain('## Before and after notes')
+  })
+})
+
+describe('with the data from a real week of outages', () => {
+  // Start (local) and duration (seconds) of each outage, in November 2026.
+  const RAW = `16 06:51:27 180|16 06:58:33 60|16 07:01:33 210|16 07:08:09 45|16 08:27:29 120|16 08:34:31 4336|16 09:50:48 30|16 09:52:18 570|16 10:02:53 270|16 10:12:26 255|18 10:10:17 405|18 10:26:13 1185|18 23:46:15 150|19 00:18:10 150|19 01:32:24 45|19 01:35:10 210|19 11:12:04 330|19 11:22:36 1605|19 11:57:28 61168|20 05:01:04 105|20 05:03:54 30|20 05:05:26 1530|20 10:15:40 1441|20 10:50:03 90|21 00:02:00 30|21 01:54:21 1050|21 02:41:30 90|21 03:40:58 27966|21 11:28:06 60|21 11:32:16 105`
+  const local = (day: number, h: number, m = 0, s = 0) => new Date(2026, 10, day, h, m, s).getTime()
+  const outages: Outage[] = RAW.split('|').map((entry, i) => {
+    const [day, time, seconds] = entry.split(' ')
+    const [h, m, s] = time.split(':').map(Number)
+    const start = local(Number(day), h, m, s)
+    return {
+      id: `o${i}`,
+      startTime: new Date(start).toISOString(),
+      endTime: new Date(start + Number(seconds) * 1000).toISOString(),
+      duration: Number(seconds),
+      cause: 'isp',
+      endReason: 'restored',
+    }
+  })
+  const now = local(21, 14, 51, 25)
+  const hoursMs = (h: number) => h * HOUR
+  const md = buildReportMarkdown(
+    {
+      outages,
+      annotations: [{ id: 'n', time: new Date(local(20, 12)).toISOString(), text: 'Switched to Silver Star router' }],
+      trackingStartTime: new Date(local(16, 6, 40, 22)).toISOString(),
+      lastCheckAt: now,
+      monitoredByDay: {
+        '2026-11-16': hoursMs(17.3),
+        '2026-11-17': hoursMs(24),
+        '2026-11-18': hoursMs(24),
+        '2026-11-19': hoursMs(24),
+        '2026-11-20': hoursMs(23.1),
+        '2026-11-21': hoursMs(14.9),
+      },
+      legacyMonitoredMs: 0,
+    },
+    { now, intervalMs: INTERVAL, failureThreshold: 2, timeZone: TZ },
+  )
+
+  it('groups the 30 outages into 13 incidents', () => {
+    expect(md).toContain('- ISP outages: 30 in 13 incidents.')
+    const incidentRows = md.split('## Incidents')[1].split('##')[0].split('\n').filter(line => /^\| \d+ \|/.test(line))
+    expect(incidentRows).toHaveLength(13)
+    expect(incidentRows[1]).toContain('| 109.2 | 6 | 93.0 |')
+  })
+
+  it('shows the router switch made no difference', () => {
+    expect(md).toMatch(/\| Before the first note \| [^|]+ \| [^|]+ \| 100\.8 \| 24 \| 9 \| 1242\.\d \| 5\.7 \| 79\.\d\d% \|/)
+    expect(md).toMatch(/\| After "Switched to Silver Star router" \| [^|]+ \| [^|]+ \| 26\.4 \| 6 \| 4 \| 488\.\d \| 5\.4 \| 69\.\d\d% \|/)
+  })
+
+  it('shows most outages are short but two long ones are most of the downtime', () => {
+    expect(md).toContain('| 1–5 minutes | 14 |')
+    expect(md).toMatch(/\| 4 hours or more \| 2 \| 1485\.6 \| 85\.9% \|/)
+  })
+})
+
 describe('exportReport', () => {
   beforeEach(() => {
     jest.useFakeTimers()

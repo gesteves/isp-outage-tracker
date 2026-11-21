@@ -5,7 +5,8 @@ const IP_TARGETS = ['https://1.1.1.1', 'https://8.8.8.8'];
 /** Need DNS. Reaching one of these is what browsing needs: DNS and routing both work. */
 const NAME_TARGETS = ['https://cloudflare.com', 'https://google.com'];
 
-const TIMEOUT_MS = 5000;
+/** How long each target gets to answer. A failing check usually takes this long. */
+export const CHECK_TIMEOUT_MS = 5000;
 
 export interface CheckOutcome {
   online: boolean;
@@ -36,7 +37,7 @@ export async function checkConnectivity(): Promise<CheckOutcome> {
 /** Response time in ms, or null if the request failed or timed out. */
 async function checkEndpoint(url: string): Promise<number | null> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
   const startedAt = performance.now();
 
   try {

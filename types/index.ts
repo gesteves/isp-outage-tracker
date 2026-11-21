@@ -35,17 +35,36 @@ export interface Outage {
   /** Failed checks in a row needed to log an outage, when this one began. */
   failureThreshold?: number;
   failure?: OutageFailure;
-  /** Public IP and ASN last detected before the outage began (looked up at most an hour earlier). */
-  ip?: string | null;
+  /**
+   * When the last successful check before the outage ran (ISO timestamp). The outage
+   * began somewhere between this and `startTime`. Null if unknown (e.g. the app had
+   * just started, or resumed after a gap).
+   */
+  lastGoodCheckAt?: string | null;
+  /** Public IPv4 and IPv6 addresses and ASN last detected before the outage began (looked up at most an hour earlier). */
+  ipv4?: string | null;
+  ipv6?: string | null;
   asn?: string | null;
-  /** ISP, public IP and ASN detected right after the connection came back. */
+  /** ISP, public IPv4 and IPv6 addresses and ASN detected right after the connection came back. */
   ispAfter?: string | null;
-  ipAfter?: string | null;
+  ipv4After?: string | null;
+  ipv6After?: string | null;
   asnAfter?: string | null;
+  /**
+   * Public IP before and after, from records made before IPv4 and IPv6 were looked up
+   * separately. Either family, depending on how the lookup service was reached.
+   */
+  ip?: string | null;
+  ipAfter?: string | null;
   /** Median response time (ms) of the last few successful checks before the first failed one. */
   latencyBeforeMs?: number | null;
-  /** Response time (ms) of the check that saw the connection come back. */
+  /**
+   * Response time (ms) of the check that saw the connection come back. Often high: that
+   * request sets up DNS, TCP and TLS from scratch.
+   */
   latencyAfterMs?: number | null;
+  /** Median response time (ms) of the few successful checks right after that one. */
+  latencySettledMs?: number | null;
 }
 
 /**

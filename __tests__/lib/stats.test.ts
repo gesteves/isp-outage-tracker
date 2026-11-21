@@ -1,7 +1,12 @@
 import {
   StatsInput,
+  MONITORED_HOURS_KEPT_DAYS,
+  accrueMonitoredHours,
   accrueMonitoredTime,
   calculateStats,
+  forEachHour,
+  hourKey,
+  hourKeyStart,
   dailyBreakdown,
   dayKey,
   startOfNextDay,
@@ -64,6 +69,40 @@ describe('accrueMonitoredTime', () => {
     const byDay = { '2024-01-05': 1 }
     accrueMonitoredTime(byDay, local(5, 1), local(5, 2))
     expect(byDay).toEqual({ '2024-01-05': 1 })
+  })
+})
+
+describe('hour helpers', () => {
+  it('hourKey uses the local hour, and hourKeyStart reverses it', () => {
+    expect(hourKey(local(5, 9, 59))).toBe('2024-01-05T09')
+    expect(hourKeyStart('2024-01-05T09')).toBe(local(5, 9))
+  })
+
+  it('forEachHour splits a span at local hour boundaries', () => {
+    const parts: Array<[string, number]> = []
+    forEachHour(local(5, 9, 30), local(5, 11, 15), (key, ms) => parts.push([key, ms]))
+    expect(parts).toEqual([
+      ['2024-01-05T09', 30 * 60_000],
+      ['2024-01-05T10', H],
+      ['2024-01-05T11', 15 * 60_000],
+    ])
+  })
+})
+
+describe('accrueMonitoredHours', () => {
+  it('adds a span per hour, without mutating its input', () => {
+    const byHour = { '2024-01-05T09': 1000 }
+    expect(accrueMonitoredHours(byHour, local(5, 9, 59), local(5, 10, 1))).toEqual({
+      '2024-01-05T09': 1000 + 60_000,
+      '2024-01-05T10': 60_000,
+    })
+    expect(byHour).toEqual({ '2024-01-05T09': 1000 })
+  })
+
+  it('drops hours older than it keeps when a new hour starts', () => {
+    const old = hourKey(local(5) - (MONITORED_HOURS_KEPT_DAYS + 1) * 24 * H)
+    const result = accrueMonitoredHours({ [old]: 1000, '2024-01-05T09': 1000 }, local(5, 10), local(5, 10, 1))
+    expect(result).toEqual({ '2024-01-05T09': 1000, '2024-01-05T10': 60_000 })
   })
 })
 

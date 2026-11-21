@@ -6,8 +6,15 @@ export interface StatsInput {
   trackingStartTime: string | null;
   lastCheckAt: number | null;
   monitoredByDay: Record<string, number>;
+  /** Per local hour ('YYYY-MM-DDTHH'). Only the Markdown export reads it. */
+  monitoredByHour?: Record<string, number>;
   legacyMonitoredMs: number;
 }
+
+/** How long per-hour monitored totals are kept. A year of them is about 200 KB. */
+export const MONITORED_HOURS_KEPT_DAYS = 400;
+
+const HOUR_MS = 60 * 60_000;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -24,10 +31,62 @@ export function startOfNextDay(ms: number): number {
   return d.getTime();
 }
 
-function startOfDay(ms: number): number {
+export function startOfDay(ms: number): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
+}
+
+/** Local hour of a timestamp, as 'YYYY-MM-DDTHH'. */
+export function hourKey(ms: number): string {
+  return `${dayKey(ms)}T${pad(new Date(ms).getHours())}`;
+}
+
+/** Start of the local hour a 'YYYY-MM-DDTHH' key names (epoch ms). */
+export function hourKeyStart(key: string): number {
+  const [y, mo, d, h] = key.split(/[-T]/).map(Number);
+  return new Date(y, mo - 1, d, h).getTime();
+}
+
+/** The start of the local hour after `ms`. */
+function startOfNextHour(ms: number): number {
+  const d = new Date(ms);
+  d.setMinutes(60, 0, 0);
+  // Where the clock goes back, local hours can repeat; never stand still.
+  return d.getTime() > ms ? d.getTime() : ms + HOUR_MS - (ms % HOUR_MS);
+}
+
+/** Calls fn(hourKey, overlapMs) for each local hour that [fromMs, toMs) touches. */
+export function forEachHour(fromMs: number, toMs: number, fn: (key: string, ms: number) => void): void {
+  let cursor = fromMs;
+  while (cursor < toMs) {
+    const next = Math.min(toMs, startOfNextHour(cursor));
+    fn(hourKey(cursor), next - cursor);
+    cursor = next;
+  }
+}
+
+/**
+ * Adds the span [fromMs, toMs) to the per-hour monitored totals, dropping hours older
+ * than MONITORED_HOURS_KEPT_DAYS so they don't fill localStorage.
+ */
+export function accrueMonitoredHours(
+  byHour: Record<string, number>,
+  fromMs: number,
+  toMs: number,
+): Record<string, number> {
+  const result = { ...byHour };
+  let added = false;
+  forEachHour(fromMs, toMs, (key, ms) => {
+    if (!(key in result)) added = true;
+    result[key] = (result[key] ?? 0) + ms;
+  });
+  // Pruning only matters when a new hour starts.
+  if (added) {
+    const oldest = dayKey(toMs - MONITORED_HOURS_KEPT_DAYS * 24 * HOUR_MS);
+    for (const key of Object.keys(result)) if (key < oldest) delete result[key];
+  }
+  return result;
 }
 
 /** Calls fn(dayStart, overlapMs) for each local day that [fromMs, toMs) touches. */
@@ -58,7 +117,7 @@ export function accrueMonitoredTime(
  * The live edge of monitoring: now, but never more than the gap threshold past the
  * last check. If checking stopped, ongoing numbers stop growing there.
  */
-function liveEdge(lastCheckAt: number | null, now: number, intervalMs: number): number {
+export function liveEdge(lastCheckAt: number | null, now: number, intervalMs: number): number {
   if (lastCheckAt === null) return now;
   return Math.max(lastCheckAt, Math.min(now, lastCheckAt + gapThresholdMs(intervalMs)));
 }

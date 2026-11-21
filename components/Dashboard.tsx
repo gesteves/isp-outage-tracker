@@ -6,6 +6,7 @@ import { exportToCSV } from '@/lib/csv';
 import { registerServiceWorker } from '@/lib/register-sw';
 import { exportReport } from '@/lib/report-export';
 import { calculateStats, dailyBreakdown } from '@/lib/stats';
+import { loadData } from '@/lib/storage';
 import { useConnectivityMonitor } from '@/hooks/useConnectivityMonitor';
 import { useDocumentStatus } from '@/hooks/useDocumentStatus';
 import { useNow } from '@/hooks/useNow';
@@ -155,8 +156,11 @@ export default function Dashboard() {
                   onSelect: () => {
                     // Exported as of this moment, not the last minute tick the stats use.
                     const at = Math.max(Date.now(), lastCheckAt ?? 0);
+                    // Per-hour monitored time only matters here, so it's read from storage
+                    // instead of being sent to every tab with each update.
+                    const { monitoredByHour } = loadData(at).data;
                     exportReport(
-                      { outages, annotations, trackingStartTime, lastCheckAt, monitoredByDay, legacyMonitoredMs },
+                      { outages, annotations, trackingStartTime, lastCheckAt, monitoredByDay, monitoredByHour, legacyMonitoredMs },
                       { now: at, intervalMs: CHECK_INTERVAL_MS, failureThreshold: FAILURE_THRESHOLD, ispName: monitor.ispName },
                     );
                   },
