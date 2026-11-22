@@ -2,8 +2,8 @@
 export type ShowerKind = 'start' | 'end';
 
 export const SHOWER_EMOJI: Record<ShowerKind, readonly string[]> = {
-  start: ['😱', '😭', '💀', '🔥', '🚨', '📉', '💔', '🤬', '😩', '🙀', '⛈️', '📵', '🐌', '🪦'],
-  end: ['🎉', '🥳', '🎊', '✨', '🙌', '🚀', '📶', '🌈', '🍾', '🎈', '👏', '💚', '😌', '⚡'],
+  start: ['😩', '🤬', '😱', '💀', '💩', '💀', '🫪', '😡', '😭', '🥲', '😨', '😰', '🥺', '🫠', '😑', '🫩', '😵‍💫'],
+  end: ['😃', '😄', '😁', '🤩', '😺', '😸', '🙌', '🎉', '✨'],
 };
 
 export interface ShowerParticle {
