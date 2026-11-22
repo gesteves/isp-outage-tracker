@@ -15,6 +15,7 @@ import { useWakeLock } from '@/hooks/useWakeLock';
 import { Annotation } from '@/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import DailyChart from '@/components/DailyChart';
+import EmojiShower from '@/components/EmojiShower';
 import ExportMenu from '@/components/ExportMenu';
 import { CheckStatusLine, LiveStatusIndicator } from '@/components/LiveStatus';
 import NoteDialog from '@/components/NoteDialog';
@@ -192,6 +193,8 @@ export default function Dashboard() {
           <p className="text-center py-12 text-gray-400 dark:text-gray-500">Loading history…</p>
         )}
       </div>
+
+      <EmojiShower status={monitor.status} />
 
       <ConfirmDialog
         open={showClearConfirm}
