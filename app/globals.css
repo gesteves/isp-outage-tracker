@@ -45,3 +45,35 @@
     cursor: pointer;
   }
 }
+
+/* The emoji shower when an outage starts or ends (components/EmojiShower.tsx). */
+@keyframes emoji-fall {
+  from {
+    transform: translate(0, -10vh) rotate(0deg);
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--drift, 0px), 110vh) rotate(var(--spin, 0deg));
+    opacity: 0;
+  }
+}
+
+.emoji-shower-particle {
+  position: absolute;
+  top: 0;
+  line-height: 1;
+  /* `both` keeps each particle above the viewport until its delay is over. */
+  animation-name: emoji-fall;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.8, 1);
+  animation-fill-mode: both;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emoji-shower-particle {
+    display: none;
+  }
+}
