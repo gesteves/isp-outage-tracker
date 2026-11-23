@@ -16,7 +16,7 @@ const STYLES: Record<ConnectionStatus, { circle: string; text: string; icon: str
     label: 'up',
   },
   down: {
-    circle: 'bg-red-500 shadow-lg shadow-red-500/50 animate-pulse',
+    circle: 'bg-red-500 outage-pulse',
     text: 'text-red-600 dark:text-red-400',
     icon: '✗',
     label: 'down',
@@ -34,13 +34,21 @@ export default function StatusIndicator({ status, currentOutageDuration }: Statu
 
   return (
     <div className="flex flex-col items-center justify-center p-8 md:p-12">
-      <div
-        className={`w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center mb-6 transition-colors ${style.circle}`}
-      >
-        <span aria-hidden="true" className="text-4xl md:text-6xl">{style.icon}</span>
+      <div className="relative mb-6">
+        {status === 'down' && (
+          <>
+            <span aria-hidden="true" className="outage-ripple absolute inset-0 rounded-full bg-red-500" />
+            <span aria-hidden="true" className="outage-ripple outage-ripple-delayed absolute inset-0 rounded-full bg-red-500" />
+          </>
+        )}
+        <div
+          className={`relative w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center transition-colors ${style.circle}`}
+        >
+          <span aria-hidden="true" className="text-4xl md:text-6xl">{style.icon}</span>
+        </div>
       </div>
 
-      <p role="status" aria-live="polite" className="text-3xl md:text-5xl font-bold mb-4 text-center">
+      <p role="status" aria-live="polite" className="relative text-3xl md:text-5xl font-bold mb-4 text-center">
         {status === 'unknown' ? (
           <span className={style.text}>Checking your connection…</span>
         ) : (
@@ -51,7 +59,7 @@ export default function StatusIndicator({ status, currentOutageDuration }: Statu
       </p>
 
       {status === 'down' && currentOutageDuration !== null && currentOutageDuration !== undefined && (
-        <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400">
+        <p className="relative text-xl md:text-2xl text-gray-600 dark:text-gray-400">
           It’s been down for {formatDurationFromSeconds(currentOutageDuration)}
         </p>
       )}

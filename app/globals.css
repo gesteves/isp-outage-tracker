@@ -85,3 +85,88 @@
     display: none;
   }
 }
+
+/*
+ * The outage alert: the status circle pulses and glows, rings ripple out from it,
+ * and its card flashes red, all on one period so they beat together. Strong
+ * enough to notice from across the room (components/StatusIndicator.tsx, Dashboard.tsx).
+ */
+:root {
+  --outage-period: 1.5s;
+  --outage-card-from: var(--color-white);
+  --outage-card-to: var(--color-red-100);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --outage-card-from: var(--color-gray-900);
+    --outage-card-to: color-mix(in oklab, var(--color-red-900) 70%, var(--color-gray-900));
+  }
+}
+
+@keyframes outage-pulse {
+  0%,
+  100% {
+    scale: 1;
+    box-shadow: 0 0 16px 4px color-mix(in oklab, var(--color-red-500) 50%, transparent);
+  }
+  50% {
+    scale: 1.1;
+    box-shadow: 0 0 56px 20px color-mix(in oklab, var(--color-red-500) 75%, transparent);
+  }
+}
+
+@keyframes outage-ripple {
+  from {
+    scale: 1;
+    opacity: 0.6;
+  }
+  to {
+    scale: 2.2;
+    opacity: 0;
+  }
+}
+
+@keyframes outage-card-flash {
+  0%,
+  100% {
+    background-color: var(--outage-card-from);
+  }
+  50% {
+    background-color: var(--outage-card-to);
+  }
+}
+
+.outage-pulse {
+  animation: outage-pulse var(--outage-period) ease-in-out infinite;
+}
+
+.outage-ripple {
+  animation: outage-ripple calc(var(--outage-period) * 2) ease-out infinite;
+}
+
+/* Two rings, half a cycle apart, so one is always on its way out. */
+.outage-ripple-delayed {
+  animation-delay: var(--outage-period);
+}
+
+.outage-card {
+  animation: outage-card-flash var(--outage-period) ease-in-out infinite;
+}
+
+/* Without motion, a steady red card and glow still make the state obvious. */
+@media (prefers-reduced-motion: reduce) {
+  .outage-pulse {
+    animation: none;
+    box-shadow: 0 0 56px 20px color-mix(in oklab, var(--color-red-500) 75%, transparent);
+  }
+
+  .outage-ripple {
+    display: none;
+  }
+
+  .outage-card {
+    animation: none;
+    background-color: var(--outage-card-to);
+  }
+}

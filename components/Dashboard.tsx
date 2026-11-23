@@ -113,7 +113,12 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10 mb-8">
+      {/* During an outage the card flashes red with the status circle; it clips the circle's ripples. */}
+      <div
+        className={`bg-white rounded-xl shadow-lg overflow-hidden dark:bg-gray-900 dark:shadow-none mb-8 ${
+          monitor.status === 'down' ? 'outage-card ring-4 ring-red-500' : 'dark:ring-1 dark:ring-white/10'
+        }`}
+      >
         <LiveStatusIndicator
           status={monitor.status}
           outageStartTime={monitor.currentOutage?.startTime ?? null}

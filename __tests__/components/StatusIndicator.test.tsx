@@ -48,4 +48,18 @@ describe('StatusIndicator', () => {
 
     expect(container.querySelector('.bg-red-500')).toBeInTheDocument()
   })
+
+  it('should pulse the circle and ripple rings out of it when offline', () => {
+    const { container } = render(<StatusIndicator status="down" />)
+
+    expect(container.querySelector('.outage-pulse')).toBeInTheDocument()
+    expect(container.querySelectorAll('.outage-ripple')).toHaveLength(2)
+  })
+
+  it('should not animate the outage alert when online', () => {
+    const { container } = render(<StatusIndicator status="up" />)
+
+    expect(container.querySelector('.outage-pulse')).not.toBeInTheDocument()
+    expect(container.querySelector('.outage-ripple')).not.toBeInTheDocument()
+  })
 })
