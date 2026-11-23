@@ -1,7 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import EmojiShower from '@/components/EmojiShower'
-import { EMOJI_SHOWER_DURATION_MS } from '@/lib/config'
-import { SHOWER_EMOJI } from '@/lib/emoji-shower'
+import { SHOWER_EMOJI, showerLifetimeMs, showerParticleCount } from '@/lib/emoji-shower'
 import { ConnectionStatus } from '@/lib/monitor'
 
 function mockReducedMotion(reduce: boolean) {
@@ -45,7 +44,7 @@ describe('EmojiShower', () => {
     const { change } = renderWith('up')
     change('down')
     const emoji = shownEmoji()
-    expect(emoji.length).toBeGreaterThan(0)
+    expect(emoji).toHaveLength(showerParticleCount())
     emoji.forEach(e => expect(SHOWER_EMOJI.start).toContain(e))
   })
 
@@ -71,7 +70,7 @@ describe('EmojiShower', () => {
   it('clears the shower once it has finished', () => {
     const { change } = renderWith('up')
     change('down')
-    act(() => jest.advanceTimersByTime(EMOJI_SHOWER_DURATION_MS - 1))
+    act(() => jest.advanceTimersByTime(showerLifetimeMs() - 1))
     expect(screen.getByTestId('emoji-shower')).toBeInTheDocument()
     act(() => jest.advanceTimersByTime(1))
     expect(screen.queryByTestId('emoji-shower')).not.toBeInTheDocument()
@@ -80,11 +79,11 @@ describe('EmojiShower', () => {
   it('replaces a running shower when the status flips again', () => {
     const { change } = renderWith('up')
     change('down')
-    act(() => jest.advanceTimersByTime(EMOJI_SHOWER_DURATION_MS / 2))
+    act(() => jest.advanceTimersByTime(showerLifetimeMs() / 2))
     change('up')
     shownEmoji().forEach(e => expect(SHOWER_EMOJI.end).toContain(e))
     // The new shower gets its full time.
-    act(() => jest.advanceTimersByTime(EMOJI_SHOWER_DURATION_MS - 1))
+    act(() => jest.advanceTimersByTime(showerLifetimeMs() - 1))
     expect(screen.getByTestId('emoji-shower')).toBeInTheDocument()
   })
 

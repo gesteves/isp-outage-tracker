@@ -115,7 +115,7 @@ Edit `.env.local` with your values:
 ```env
 NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60  # Check every 60 seconds (minimum 5)
 NEXT_PUBLIC_FAILURE_THRESHOLD=2        # Log outage after 2 consecutive failures (minimum 1)
-NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000  # Emoji shower length in ms (minimum 100)
+NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000  # How long emoji keep falling, in ms (minimum 100)
 NEXT_PUBLIC_OUTAGE_START_EMOJI=😩🤬😱💀  # Emoji for when an outage starts
 NEXT_PUBLIC_OUTAGE_END_EMOJI=😃😄🎉✨    # Emoji for when it ends
 ```
@@ -184,7 +184,7 @@ NEXT_PUBLIC_FAILURE_THRESHOLD=2
 
 ### Emoji Shower
 
-How long the emoji shower lasts, in milliseconds (minimum 100), from the first emoji appearing to the last one landing:
+How long emoji keep falling, in milliseconds (minimum 100). Emoji always fall at the same gravity-like speed, taking about 2 seconds to cross the screen; a longer shower drops more of them (about 15 a second), and the last ones land about 2 seconds after it ends:
 ```env
 NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000
 ```

@@ -13,8 +13,8 @@ export interface ShowerParticle {
   emoji: string;
   /** Horizontal start position, as a percentage of the viewport width. */
   left: number;
+  /** When the emoji starts falling, counted from the start of the shower. */
   delayMs: number;
-  durationMs: number;
   sizeRem: number;
   /** Sideways drift over the fall, in px. */
   drift: number;
@@ -22,31 +22,44 @@ export interface ShowerParticle {
   spin: number;
 }
 
-/*
- * Timings are shares of the shower's total duration: each emoji starts within the
- * first 30% of it and falls for 60–70% of it, so all have landed by the end.
+/**
+ * How long each emoji takes to fall from just above the screen (-10vh) to just below
+ * it (110vh). They start at rest and speed up evenly, like gravity, scaled so the fall
+ * reads as natural on any screen: 2 × 120vh / (2 s)² = 60vh/s². The same for every
+ * shower, whatever its duration.
  */
-const MAX_DELAY_SHARE = 0.3;
-const MIN_FALL_SHARE = 0.6;
-const MAX_FALL_SHARE = 0.7;
+export const SHOWER_FALL_MS = 2000;
 
-export const SHOWER_PARTICLE_COUNT = 40;
+/** How many emoji start falling each second, for as long as the shower lasts. */
+export const SHOWER_EMOJI_PER_SECOND = 15;
+
+/** How many emoji fall in a shower of `totalMs`. */
+export function showerParticleCount(totalMs: number = EMOJI_SHOWER_DURATION_MS): number {
+  return Math.max(1, Math.round((SHOWER_EMOJI_PER_SECOND * totalMs) / 1000));
+}
+
+/** How long a shower of `totalMs` stays on screen: emoji keep starting until `totalMs`, then the last one lands. */
+export function showerLifetimeMs(totalMs: number = EMOJI_SHOWER_DURATION_MS): number {
+  return totalMs + SHOWER_FALL_MS;
+}
 
 const between = (random: () => number, min: number, max: number) => min + random() * (max - min);
 
 export function createShowerParticles(
   kind: ShowerKind,
-  count = SHOWER_PARTICLE_COUNT,
-  random: () => number = Math.random,
   totalMs: number = EMOJI_SHOWER_DURATION_MS,
+  random: () => number = Math.random,
 ): ShowerParticle[] {
   const emoji = SHOWER_EMOJI[kind];
+  const count = showerParticleCount(totalMs);
+  // One emoji at a random point in each equal slot of the duration, so they keep
+  // coming at a steady rate without gaps or clumps.
+  const slotMs = totalMs / count;
   return Array.from({ length: count }, (_, id) => ({
     id,
     emoji: emoji[Math.min(emoji.length - 1, Math.floor(random() * emoji.length))],
     left: between(random, 0, 100),
-    delayMs: between(random, 0, MAX_DELAY_SHARE * totalMs),
-    durationMs: between(random, MIN_FALL_SHARE * totalMs, MAX_FALL_SHARE * totalMs),
+    delayMs: (id + random()) * slotMs,
     sizeRem: between(random, 1.5, 3),
     drift: between(random, -40, 40),
     spin: between(random, -360, 360),

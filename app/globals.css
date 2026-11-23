@@ -49,15 +49,19 @@
 /* The emoji shower when an outage starts or ends (components/EmojiShower.tsx). */
 @keyframes emoji-fall {
   from {
-    transform: translate(0, -10vh) rotate(0deg);
-    opacity: 1;
-  }
-  85% {
-    opacity: 1;
+    translate: 0 -10vh;
   }
   to {
-    transform: translate(var(--drift, 0px), 110vh) rotate(var(--spin, 0deg));
-    opacity: 0;
+    translate: var(--drift, 0px) 110vh;
+  }
+}
+
+@keyframes emoji-spin {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: var(--spin, 0deg);
   }
 }
 
@@ -65,11 +69,15 @@
   position: absolute;
   top: 0;
   line-height: 1;
+  /*
+   * The fall's curve is exactly distance ∝ time²: constant acceleration from rest,
+   * like gravity. The spin is separate so it stays steady while the fall speeds up.
+   */
+  animation-name: emoji-fall, emoji-spin;
+  animation-timing-function: cubic-bezier(0.3333, 0, 0.6667, 0.3333), linear;
   /* `both` keeps each particle above the viewport until its delay is over. */
-  animation-name: emoji-fall;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.8, 1);
   animation-fill-mode: both;
-  will-change: transform, opacity;
+  will-change: translate, rotate;
 }
 
 @media (prefers-reduced-motion: reduce) {
