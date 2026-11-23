@@ -113,7 +113,15 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="bg-white rounded-xl shadow-lg dark:bg-gray-900 dark:shadow-none dark:ring-1 dark:ring-white/10 mb-8">
+      {/*
+        During an outage, red beams run around this card's border. The border is always
+        there (transparent) so the card doesn't shift; the card also clips the circle's ripples.
+      */}
+      <div
+        className={`bg-white rounded-xl shadow-lg border-4 border-transparent overflow-hidden dark:bg-gray-900 dark:shadow-none mb-8 ${
+          monitor.status === 'down' ? 'outage-card' : 'dark:ring-1 dark:ring-white/10'
+        }`}
+      >
         <LiveStatusIndicator
           status={monitor.status}
           outageStartTime={monitor.currentOutage?.startTime ?? null}
