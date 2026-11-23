@@ -14,7 +14,7 @@ A dashboard you leave open in a browser tab (an old iPad on a stand works well) 
 - 🗒️ **Notes**: add a note at any date and time (a new router, a plan change) and it shows up in the history among the outages, and on that day in the daily chart; edit or delete it later. Notes don't affect the stats
 - 📥 **CSV export** (under **Export**): local (with UTC offset) and UTC ISO 8601 timestamps, time zone and day of week, the last good check before each outage, durations, time since the previous outage, the incident it belongs to, cause and failure type, how the outage ended, ISP, public IPv4 and IPv6 and ASN before and after, response times before, right after and once settled, and the detection settings. Notes are included as their own rows (Type `Note`), in time order among the outages, with the text in the Note column
 - 🤖 **Markdown export**: a file to hand to an AI assistant for a report. It explains what each field means (e.g. that an outage ended by "Monitoring stopped" may have lasted longer, and how precise start and end times are), and includes the app's uptime figures for all time, the last 30 and 7 days and today, how many hours were monitored each day (so a day the app wasn't running isn't mistaken for a day without outages), incidents, how long outages lasted, downtime by hour of the day against the time monitored then, a before-and-after comparison around each note (did the new router help?), and the same outage and note rows as the CSV
-- 🎉 **Emoji shower**: a burst of falling emoji when an outage starts (😱 💀 😭) and when the connection comes back (😄 🤩 🎉), so the change is obvious from across the room. Skipped if your system is set to reduce motion
+- 🎉 **Emoji shower**: a burst of falling emoji when an outage starts (😱 💀 😭) and when the connection comes back (😄 🤩 🎉), so the change is obvious from across the room. The emoji and how long it lasts are [configurable](#emoji-shower). Skipped if your system is set to reduce motion
 - 🔆 **Keep screen on**: optional toggle so a dedicated display doesn't go to sleep
 - 📴 **Works offline**: installable, and still loads if you reload it during an outage
 - 🗂️ **Multi-tab safe**: with several tabs open, only one runs checks; the others mirror it, and take over if it stops responding
@@ -115,6 +115,9 @@ Edit `.env.local` with your values:
 ```env
 NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60  # Check every 60 seconds (minimum 5)
 NEXT_PUBLIC_FAILURE_THRESHOLD=2        # Log outage after 2 consecutive failures (minimum 1)
+NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000  # Emoji shower length in ms (minimum 100)
+NEXT_PUBLIC_OUTAGE_START_EMOJI=😩🤬😱💀  # Emoji for when an outage starts
+NEXT_PUBLIC_OUTAGE_END_EMOJI=😃😄🎉✨    # Emoji for when it ends
 ```
 
 Invalid values (non-integers, or values below the minimum) fall back to the defaults.
@@ -152,7 +155,7 @@ The app is a static export (`output: 'export'` in `next.config.mjs`), so it depl
 
 1. Push the repository to GitHub, GitLab, or Bitbucket.
 2. In [Netlify](https://www.netlify.com/), choose **Add new site → Import an existing project** and select the repository.
-3. Optionally, under **Site settings → Environment variables**, set `NEXT_PUBLIC_CHECK_INTERVAL_SECONDS` and `NEXT_PUBLIC_FAILURE_THRESHOLD`.
+3. Optionally, under **Site settings → Environment variables**, set `NEXT_PUBLIC_CHECK_INTERVAL_SECONDS`, `NEXT_PUBLIC_FAILURE_THRESHOLD`, `NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS`, `NEXT_PUBLIC_OUTAGE_START_EMOJI` and `NEXT_PUBLIC_OUTAGE_END_EMOJI`. They're read at build time, so redeploy after changing them.
 4. Deploy. Pushes to your main branch redeploy automatically.
 
 Serve it over HTTPS: keeping the screen on, multi-tab coordination and the service worker all require a secure context.
@@ -177,6 +180,19 @@ NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60
 Number of consecutive failed checks before logging an outage:
 ```env
 NEXT_PUBLIC_FAILURE_THRESHOLD=2
+```
+
+### Emoji Shower
+
+How long the emoji shower lasts, in milliseconds (minimum 100), from the first emoji appearing to the last one landing:
+```env
+NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000
+```
+
+The emoji that fall when an outage starts and when it ends. Write them together or separated by spaces or commas; repeat an emoji to make it show up more often. Left out or empty, they default to:
+```env
+NEXT_PUBLIC_OUTAGE_START_EMOJI=😩🤬😱💀💩🫪😡😭🥲😨😰🥺🫠😑🫩😵‍💫
+NEXT_PUBLIC_OUTAGE_END_EMOJI=😃😄😁🤩😺😸🙌🎉✨
 ```
 
 ## Data Storage

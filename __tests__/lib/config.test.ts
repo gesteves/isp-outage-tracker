@@ -1,4 +1,4 @@
-import { parsePositiveInt } from '@/lib/config'
+import { parseEmojiList, parsePositiveInt } from '@/lib/config'
 
 describe('parsePositiveInt', () => {
   it('uses the fallback when the value is missing or blank', () => {
@@ -27,6 +27,33 @@ describe('parsePositiveInt', () => {
   })
 })
 
+describe('parseEmojiList', () => {
+  const fallback = ['🙂']
+
+  it('reads emoji separated by spaces or commas', () => {
+    expect(parseEmojiList('😩 🤬, 😱', fallback)).toEqual(['😩', '🤬', '😱'])
+  })
+
+  it('reads emoji written together', () => {
+    expect(parseEmojiList('😩🤬😱', fallback)).toEqual(['😩', '🤬', '😱'])
+  })
+
+  it('keeps emoji made of several code points whole', () => {
+    expect(parseEmojiList('😵‍💫🎉', fallback)).toEqual(['😵‍💫', '🎉'])
+    expect(parseEmojiList('👍🏽 🇦🇷', fallback)).toEqual(['👍🏽', '🇦🇷'])
+  })
+
+  it('keeps duplicates', () => {
+    expect(parseEmojiList('💀💀🎉', fallback)).toEqual(['💀', '💀', '🎉'])
+  })
+
+  it('uses the fallback when there are no emoji', () => {
+    for (const raw of [undefined, '', '  ', ', ,']) {
+      expect(parseEmojiList(raw, fallback)).toBe(fallback)
+    }
+  })
+})
+
 describe('config from env', () => {
   const original = { ...process.env }
 
@@ -38,22 +65,43 @@ describe('config from env', () => {
   it('uses defaults when env vars are invalid', () => {
     process.env.NEXT_PUBLIC_CHECK_INTERVAL_SECONDS = 'oops'
     process.env.NEXT_PUBLIC_FAILURE_THRESHOLD = '0'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS = 'oops'
+    process.env.NEXT_PUBLIC_OUTAGE_START_EMOJI = ' , '
+    process.env.NEXT_PUBLIC_OUTAGE_END_EMOJI = ''
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const config = require('@/lib/config')
       expect(config.CHECK_INTERVAL_MS).toBe(60_000)
       expect(config.FAILURE_THRESHOLD).toBe(2)
+      expect(config.EMOJI_SHOWER_DURATION_MS).toBe(config.DEFAULT_EMOJI_SHOWER_DURATION_MS)
+      expect(config.OUTAGE_START_EMOJI).toBe(config.DEFAULT_OUTAGE_START_EMOJI)
+      expect(config.OUTAGE_END_EMOJI).toBe(config.DEFAULT_OUTAGE_END_EMOJI)
+    })
+  })
+
+  it('uses the default shower duration when the value is below the minimum', () => {
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS = '50'
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const config = require('@/lib/config')
+      expect(config.EMOJI_SHOWER_DURATION_MS).toBe(config.DEFAULT_EMOJI_SHOWER_DURATION_MS)
     })
   })
 
   it('reads valid env vars', () => {
     process.env.NEXT_PUBLIC_CHECK_INTERVAL_SECONDS = '15'
     process.env.NEXT_PUBLIC_FAILURE_THRESHOLD = '3'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS = '1500'
+    process.env.NEXT_PUBLIC_OUTAGE_START_EMOJI = '🔥 🚨'
+    process.env.NEXT_PUBLIC_OUTAGE_END_EMOJI = '🎉'
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const config = require('@/lib/config')
       expect(config.CHECK_INTERVAL_MS).toBe(15_000)
       expect(config.FAILURE_THRESHOLD).toBe(3)
+      expect(config.EMOJI_SHOWER_DURATION_MS).toBe(1500)
+      expect(config.OUTAGE_START_EMOJI).toEqual(['🔥', '🚨'])
+      expect(config.OUTAGE_END_EMOJI).toEqual(['🎉'])
     })
   })
 })

@@ -2,7 +2,8 @@
 
 import { CSSProperties, useEffect, useState } from 'react';
 import { ConnectionStatus } from '@/lib/monitor';
-import { SHOWER_MAX_MS, ShowerKind, ShowerParticle, createShowerParticles } from '@/lib/emoji-shower';
+import { EMOJI_SHOWER_DURATION_MS } from '@/lib/config';
+import { ShowerKind, ShowerParticle, createShowerParticles } from '@/lib/emoji-shower';
 
 interface Burst {
   key: number;
@@ -41,7 +42,7 @@ export default function EmojiShower({ status }: { status: ConnectionStatus }) {
 
   useEffect(() => {
     if (!burst) return;
-    const timer = setTimeout(() => setBurst(null), SHOWER_MAX_MS);
+    const timer = setTimeout(() => setBurst(null), EMOJI_SHOWER_DURATION_MS);
     return () => clearTimeout(timer);
   }, [burst]);
 

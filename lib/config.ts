@@ -28,3 +28,50 @@ export const FAILURE_THRESHOLD = parsePositiveInt(
   DEFAULT_FAILURE_THRESHOLD,
   1,
 );
+
+export const DEFAULT_EMOJI_SHOWER_DURATION_MS = 3000;
+export const MIN_EMOJI_SHOWER_DURATION_MS = 100;
+
+/** How long an emoji shower lasts, from the first emoji appearing to the last one landing. */
+export const EMOJI_SHOWER_DURATION_MS = parsePositiveInt(
+  process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS,
+  DEFAULT_EMOJI_SHOWER_DURATION_MS,
+  MIN_EMOJI_SHOWER_DURATION_MS,
+);
+
+export const DEFAULT_OUTAGE_START_EMOJI: readonly string[] = Object.freeze([
+  '😩', '🤬', '😱', '💀', '💩', '🫪', '😡', '😭', '🥲', '😨', '😰', '🥺', '🫠', '😑', '🫩', '😵‍💫',
+]);
+export const DEFAULT_OUTAGE_END_EMOJI: readonly string[] = Object.freeze([
+  '😃', '😄', '😁', '🤩', '😺', '😸', '🙌', '🎉', '✨',
+]);
+
+const EMOJI_SEPARATORS = /[\s,]+/;
+
+/**
+ * Parses a list of emoji from an env var. They can be written together ("😩🤬😱") or
+ * separated by spaces or commas. Falls back to `fallback` if there are none.
+ * Duplicates are kept: repeating an emoji makes it show up more often.
+ */
+export function parseEmojiList(raw: string | undefined, fallback: readonly string[]): readonly string[] {
+  if (raw === undefined) return fallback;
+  let list: string[];
+  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+    // Split by grapheme, so emoji made of several code points (😵‍💫, 👍🏽, 🇦🇷) stay whole.
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    list = Array.from(segmenter.segment(raw.split(EMOJI_SEPARATORS).join('')), s => s.segment);
+  } else {
+    list = raw.split(EMOJI_SEPARATORS).filter(Boolean);
+  }
+  return list.length > 0 ? list : fallback;
+}
+
+export const OUTAGE_START_EMOJI = parseEmojiList(
+  process.env.NEXT_PUBLIC_OUTAGE_START_EMOJI,
+  DEFAULT_OUTAGE_START_EMOJI,
+);
+
+export const OUTAGE_END_EMOJI = parseEmojiList(
+  process.env.NEXT_PUBLIC_OUTAGE_END_EMOJI,
+  DEFAULT_OUTAGE_END_EMOJI,
+);
