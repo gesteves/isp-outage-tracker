@@ -66,6 +66,8 @@ describe('config from env', () => {
     process.env.NEXT_PUBLIC_CHECK_INTERVAL_SECONDS = 'oops'
     process.env.NEXT_PUBLIC_FAILURE_THRESHOLD = '0'
     process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS = 'oops'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS = 'oops'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND = '1.5'
     process.env.NEXT_PUBLIC_OUTAGE_START_EMOJI = ' , '
     process.env.NEXT_PUBLIC_OUTAGE_END_EMOJI = ''
     jest.isolateModules(() => {
@@ -74,17 +76,23 @@ describe('config from env', () => {
       expect(config.CHECK_INTERVAL_MS).toBe(60_000)
       expect(config.FAILURE_THRESHOLD).toBe(2)
       expect(config.EMOJI_SHOWER_DURATION_MS).toBe(config.DEFAULT_EMOJI_SHOWER_DURATION_MS)
+      expect(config.EMOJI_SHOWER_FALL_MS).toBe(config.DEFAULT_EMOJI_SHOWER_FALL_MS)
+      expect(config.EMOJI_SHOWER_PER_SECOND).toBe(config.DEFAULT_EMOJI_SHOWER_PER_SECOND)
       expect(config.OUTAGE_START_EMOJI).toBe(config.DEFAULT_OUTAGE_START_EMOJI)
       expect(config.OUTAGE_END_EMOJI).toBe(config.DEFAULT_OUTAGE_END_EMOJI)
     })
   })
 
-  it('uses the default shower duration when the value is below the minimum', () => {
+  it('uses the default shower timings when the values are below the minimum', () => {
     process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS = '50'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS = '50'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND = '0'
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const config = require('@/lib/config')
       expect(config.EMOJI_SHOWER_DURATION_MS).toBe(config.DEFAULT_EMOJI_SHOWER_DURATION_MS)
+      expect(config.EMOJI_SHOWER_FALL_MS).toBe(config.DEFAULT_EMOJI_SHOWER_FALL_MS)
+      expect(config.EMOJI_SHOWER_PER_SECOND).toBe(config.DEFAULT_EMOJI_SHOWER_PER_SECOND)
     })
   })
 
@@ -92,6 +100,8 @@ describe('config from env', () => {
     process.env.NEXT_PUBLIC_CHECK_INTERVAL_SECONDS = '15'
     process.env.NEXT_PUBLIC_FAILURE_THRESHOLD = '3'
     process.env.NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS = '1500'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS = '3500'
+    process.env.NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND = '30'
     process.env.NEXT_PUBLIC_OUTAGE_START_EMOJI = '🔥 🚨'
     process.env.NEXT_PUBLIC_OUTAGE_END_EMOJI = '🎉'
     jest.isolateModules(() => {
@@ -100,6 +110,8 @@ describe('config from env', () => {
       expect(config.CHECK_INTERVAL_MS).toBe(15_000)
       expect(config.FAILURE_THRESHOLD).toBe(3)
       expect(config.EMOJI_SHOWER_DURATION_MS).toBe(1500)
+      expect(config.EMOJI_SHOWER_FALL_MS).toBe(3500)
+      expect(config.EMOJI_SHOWER_PER_SECOND).toBe(30)
       expect(config.OUTAGE_START_EMOJI).toEqual(['🔥', '🚨'])
       expect(config.OUTAGE_END_EMOJI).toEqual(['🎉'])
     })

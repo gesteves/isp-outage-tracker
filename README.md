@@ -116,6 +116,8 @@ Edit `.env.local` with your values:
 NEXT_PUBLIC_CHECK_INTERVAL_SECONDS=60  # Check every 60 seconds (minimum 5)
 NEXT_PUBLIC_FAILURE_THRESHOLD=2        # Log outage after 2 consecutive failures (minimum 1)
 NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000  # How long emoji keep falling, in ms (minimum 100)
+NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS=2000      # How long each emoji takes to cross the screen, in ms (minimum 100)
+NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND=15     # Emoji that start falling each second (minimum 1)
 NEXT_PUBLIC_OUTAGE_START_EMOJI=😩🤬😱💀  # Emoji for when an outage starts
 NEXT_PUBLIC_OUTAGE_END_EMOJI=😃😄🎉✨    # Emoji for when it ends
 ```
@@ -155,7 +157,7 @@ The app is a static export (`output: 'export'` in `next.config.mjs`), so it depl
 
 1. Push the repository to GitHub, GitLab, or Bitbucket.
 2. In [Netlify](https://www.netlify.com/), choose **Add new site → Import an existing project** and select the repository.
-3. Optionally, under **Site settings → Environment variables**, set `NEXT_PUBLIC_CHECK_INTERVAL_SECONDS`, `NEXT_PUBLIC_FAILURE_THRESHOLD`, `NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS`, `NEXT_PUBLIC_OUTAGE_START_EMOJI` and `NEXT_PUBLIC_OUTAGE_END_EMOJI`. They're read at build time, so redeploy after changing them.
+3. Optionally, under **Site settings → Environment variables**, set `NEXT_PUBLIC_CHECK_INTERVAL_SECONDS`, `NEXT_PUBLIC_FAILURE_THRESHOLD`, `NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS`, `NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS`, `NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND`, `NEXT_PUBLIC_OUTAGE_START_EMOJI` and `NEXT_PUBLIC_OUTAGE_END_EMOJI`. They're read at build time, so redeploy after changing them.
 4. Deploy. Pushes to your main branch redeploy automatically.
 
 Serve it over HTTPS: keeping the screen on, multi-tab coordination and the service worker all require a secure context.
@@ -184,9 +186,19 @@ NEXT_PUBLIC_FAILURE_THRESHOLD=2
 
 ### Emoji Shower
 
-How long emoji keep falling, in milliseconds (minimum 100). Emoji always fall at the same gravity-like speed, taking about 2 seconds to cross the screen; a longer shower drops more of them (about 15 a second), and the last ones land about 2 seconds after it ends:
+How long emoji keep falling, in milliseconds (minimum 100). A longer shower drops more emoji rather than slowing them down, and the last ones land one fall time after it ends:
 ```env
 NEXT_PUBLIC_EMOJI_SHOWER_DURATION_MS=3000
+```
+
+How long each emoji takes to cross the screen, in milliseconds (minimum 100). Emoji start at rest and speed up evenly, like gravity, so a longer fall time means a gentler gravity:
+```env
+NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS=2000
+```
+
+How many emoji start falling each second (minimum 1), spread evenly across the shower:
+```env
+NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND=15
 ```
 
 The emoji that fall when an outage starts and when it ends. Write them together or separated by spaces or commas; repeat an emoji to make it show up more often. Left out or empty, they default to:

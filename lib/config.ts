@@ -39,6 +39,30 @@ export const EMOJI_SHOWER_DURATION_MS = parsePositiveInt(
   MIN_EMOJI_SHOWER_DURATION_MS,
 );
 
+export const DEFAULT_EMOJI_SHOWER_FALL_MS = 2000;
+export const MIN_EMOJI_SHOWER_FALL_MS = 100;
+
+/**
+ * How long each emoji takes to fall from just above the screen (-10vh) to just below
+ * it (110vh). They start at rest and speed up evenly, like gravity, at
+ * 2 × 120vh / (fall time)²: 60vh/s² at the default 2 s. The same for every shower,
+ * whatever its duration.
+ */
+export const EMOJI_SHOWER_FALL_MS = parsePositiveInt(
+  process.env.NEXT_PUBLIC_EMOJI_SHOWER_FALL_MS,
+  DEFAULT_EMOJI_SHOWER_FALL_MS,
+  MIN_EMOJI_SHOWER_FALL_MS,
+);
+
+export const DEFAULT_EMOJI_SHOWER_PER_SECOND = 15;
+
+/** How many emoji start falling each second, for as long as the shower lasts. */
+export const EMOJI_SHOWER_PER_SECOND = parsePositiveInt(
+  process.env.NEXT_PUBLIC_EMOJI_SHOWER_PER_SECOND,
+  DEFAULT_EMOJI_SHOWER_PER_SECOND,
+  1,
+);
+
 export const DEFAULT_OUTAGE_START_EMOJI: readonly string[] = Object.freeze([
   '😩', '🤬', '😱', '💀', '💩', '🫪', '😡', '😭', '🥲', '😨', '😰', '🥺', '🫠', '😑', '🫩', '😵‍💫',
 ]);

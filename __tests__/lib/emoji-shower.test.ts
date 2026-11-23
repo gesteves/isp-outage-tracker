@@ -1,8 +1,12 @@
-import { DEFAULT_OUTAGE_END_EMOJI, DEFAULT_OUTAGE_START_EMOJI, EMOJI_SHOWER_DURATION_MS } from '@/lib/config'
+import {
+  DEFAULT_OUTAGE_END_EMOJI,
+  DEFAULT_OUTAGE_START_EMOJI,
+  EMOJI_SHOWER_DURATION_MS,
+  EMOJI_SHOWER_FALL_MS,
+  EMOJI_SHOWER_PER_SECOND,
+} from '@/lib/config'
 import {
   SHOWER_EMOJI,
-  SHOWER_EMOJI_PER_SECOND,
-  SHOWER_FALL_MS,
   createShowerParticles,
   showerLifetimeMs,
   showerParticleCount,
@@ -13,7 +17,7 @@ const TOTALS = [undefined, 100, 1000, 7000]
 describe('showerParticleCount', () => {
   it.each(TOTALS)('starts emoji at a steady rate (total %p ms)', totalMs => {
     const total = totalMs ?? EMOJI_SHOWER_DURATION_MS
-    expect(showerParticleCount(totalMs)).toBe(Math.max(1, Math.round((SHOWER_EMOJI_PER_SECOND * total) / 1000)))
+    expect(showerParticleCount(totalMs)).toBe(Math.max(1, Math.round((EMOJI_SHOWER_PER_SECOND * total) / 1000)))
   })
 
   it('drops more emoji in a longer shower', () => {
@@ -21,14 +25,14 @@ describe('showerParticleCount', () => {
   })
 
   it('always drops at least one emoji', () => {
-    expect(showerParticleCount(1)).toBe(1)
+    expect(showerParticleCount(0)).toBe(1)
   })
 })
 
 describe('showerLifetimeMs', () => {
   it.each(TOTALS)('leaves time for the last emoji to land (total %p ms)', totalMs => {
     const total = totalMs ?? EMOJI_SHOWER_DURATION_MS
-    expect(showerLifetimeMs(totalMs)).toBe(total + SHOWER_FALL_MS)
+    expect(showerLifetimeMs(totalMs)).toBe(total + EMOJI_SHOWER_FALL_MS)
   })
 })
 

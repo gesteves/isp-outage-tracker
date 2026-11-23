@@ -2,8 +2,8 @@
 
 import { CSSProperties, useEffect, useState } from 'react';
 import { ConnectionStatus } from '@/lib/monitor';
+import { EMOJI_SHOWER_FALL_MS } from '@/lib/config';
 import {
-  SHOWER_FALL_MS,
   ShowerKind,
   ShowerParticle,
   createShowerParticles,
@@ -69,7 +69,7 @@ export default function EmojiShower({ status }: { status: ConnectionStatus }) {
               left: `${p.left}%`,
               fontSize: `${p.sizeRem}rem`,
               animationDelay: `${p.delayMs}ms`,
-              animationDuration: `${SHOWER_FALL_MS}ms`,
+              animationDuration: `${EMOJI_SHOWER_FALL_MS}ms`,
               '--drift': `${p.drift}px`,
               '--spin': `${p.spin}deg`,
             } as CSSProperties

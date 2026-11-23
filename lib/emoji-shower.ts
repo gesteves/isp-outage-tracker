@@ -1,4 +1,10 @@
-import { EMOJI_SHOWER_DURATION_MS, OUTAGE_END_EMOJI, OUTAGE_START_EMOJI } from '@/lib/config';
+import {
+  EMOJI_SHOWER_DURATION_MS,
+  EMOJI_SHOWER_FALL_MS,
+  EMOJI_SHOWER_PER_SECOND,
+  OUTAGE_END_EMOJI,
+  OUTAGE_START_EMOJI,
+} from '@/lib/config';
 
 /** 'start': an outage just began. 'end': the connection just came back. */
 export type ShowerKind = 'start' | 'end';
@@ -22,25 +28,14 @@ export interface ShowerParticle {
   spin: number;
 }
 
-/**
- * How long each emoji takes to fall from just above the screen (-10vh) to just below
- * it (110vh). They start at rest and speed up evenly, like gravity, scaled so the fall
- * reads as natural on any screen: 2 × 120vh / (2 s)² = 60vh/s². The same for every
- * shower, whatever its duration.
- */
-export const SHOWER_FALL_MS = 2000;
-
-/** How many emoji start falling each second, for as long as the shower lasts. */
-export const SHOWER_EMOJI_PER_SECOND = 15;
-
 /** How many emoji fall in a shower of `totalMs`. */
 export function showerParticleCount(totalMs: number = EMOJI_SHOWER_DURATION_MS): number {
-  return Math.max(1, Math.round((SHOWER_EMOJI_PER_SECOND * totalMs) / 1000));
+  return Math.max(1, Math.round((EMOJI_SHOWER_PER_SECOND * totalMs) / 1000));
 }
 
 /** How long a shower of `totalMs` stays on screen: emoji keep starting until `totalMs`, then the last one lands. */
 export function showerLifetimeMs(totalMs: number = EMOJI_SHOWER_DURATION_MS): number {
-  return totalMs + SHOWER_FALL_MS;
+  return totalMs + EMOJI_SHOWER_FALL_MS;
 }
 
 const between = (random: () => number, min: number, max: number) => min + random() * (max - min);
