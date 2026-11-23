@@ -88,19 +88,30 @@
 
 /*
  * The outage alert: the status circle pulses and glows, rings ripple out from it,
- * and its card flashes red, all on one period so they beat together. Strong
- * enough to notice from across the room (components/StatusIndicator.tsx, Dashboard.tsx).
+ * and two red beams chase each other around its card's border. A beam passes any
+ * point on the border once per pulse, so it all beats together. Strong enough to
+ * notice from across the room (components/StatusIndicator.tsx, Dashboard.tsx).
  */
+
+/* Registered so the beam's angle can be animated, not just swapped at the end. */
+@property --outage-beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
 :root {
   --outage-period: 1.5s;
-  --outage-card-from: var(--color-white);
-  --outage-card-to: var(--color-red-100);
+  --outage-card-surface: var(--color-white);
+  --outage-beam-track: color-mix(in oklab, var(--color-red-500) 22%, transparent);
+  --outage-beam-head: var(--color-red-600);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --outage-card-from: var(--color-gray-900);
-    --outage-card-to: color-mix(in oklab, var(--color-red-900) 70%, var(--color-gray-900));
+    --outage-card-surface: var(--color-gray-900);
+    --outage-beam-track: color-mix(in oklab, var(--color-red-500) 30%, transparent);
+    --outage-beam-head: var(--color-red-500);
   }
 }
 
@@ -127,13 +138,9 @@
   }
 }
 
-@keyframes outage-card-flash {
-  0%,
-  100% {
-    background-color: var(--outage-card-from);
-  }
-  50% {
-    background-color: var(--outage-card-to);
+@keyframes outage-beam-spin {
+  to {
+    --outage-beam-angle: 360deg;
   }
 }
 
@@ -150,11 +157,27 @@
   animation-delay: var(--outage-period);
 }
 
+/*
+ * The card's surface fills the padding box; the conic gradient shows only through
+ * its transparent border. Each beam fades in from the faint red track to a bright
+ * head, then cuts back to the track.
+ */
 .outage-card {
-  animation: outage-card-flash var(--outage-period) ease-in-out infinite;
+  background:
+    linear-gradient(var(--outage-card-surface), var(--outage-card-surface)) padding-box,
+    conic-gradient(
+        from var(--outage-beam-angle),
+        var(--outage-beam-track) 0deg 90deg,
+        var(--outage-beam-head) 178deg,
+        var(--outage-beam-track) 180deg 270deg,
+        var(--outage-beam-head) 358deg,
+        var(--outage-beam-track) 360deg
+      )
+      border-box;
+  animation: outage-beam-spin calc(var(--outage-period) * 2) linear infinite;
 }
 
-/* Without motion, a steady red card and glow still make the state obvious. */
+/* Without motion, a solid red border and a steady glow still make the state obvious. */
 @media (prefers-reduced-motion: reduce) {
   .outage-pulse {
     animation: none;
@@ -167,6 +190,8 @@
 
   .outage-card {
     animation: none;
-    background-color: var(--outage-card-to);
+    background:
+      linear-gradient(var(--outage-card-surface), var(--outage-card-surface)) padding-box,
+      linear-gradient(var(--outage-beam-head), var(--outage-beam-head)) border-box;
   }
 }
